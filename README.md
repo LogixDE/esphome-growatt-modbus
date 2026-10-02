@@ -23,21 +23,20 @@ ESPHome integration for Growatt hybrid inverters via RS485/Modbus RTU, with nati
 
 ## Tested hardware
 
-This project was developed and tested on a **Waveshare ESP32-S3-Relay-6CH**. The board is especially convenient for this application because it combines the ESP32-S3, an isolated onboard RS485 interface, wide-range DC power input and six relays in one DIN-rail-capable module.
+This project was developed and tested on a **Waveshare ESP32-S3-Relay-1CH**. The board is especially convenient for this application because it combines the ESP32-S3, an isolated onboard RS485 interface, wide-range DC power input and six relays in one DIN-rail-capable module.
 
-- **Board:** Waveshare ESP32-S3-Relay-6CH
+- **Board:** Waveshare ESP32-S3-Relay-1CH
 - **Product used:** [Amazon.de – B0FNVWFZ4Z](https://www.amazon.de/dp/B0FNVWFZ4Z)
-- **Manufacturer documentation:** [Waveshare ESP32-S3-Relay-6CH documentation](https://docs.waveshare.com/ESP32-S3-Relay-6CH)
 - **ESPHome:** tested with 2026.9.1
 - **Growatt communication:** Modbus RTU, slave address `1`
 - **UART:** 38400 baud, 8N1
 - **RS485 pins on the tested Waveshare board:** GPIO17 TX / GPIO18 RX
 
 > **Hardware photo placeholder**  
-> A photo of the installed Waveshare ESP32-S3-Relay-6CH / Growatt controller will be added here.
+> A photo of the installed Waveshare ESP32-S3-Relay-1CH / Growatt controller will be added here later.
 > Suggested file: `docs/images/waveshare-growatt-controller.jpg`
 
-The package can be adapted to other ESP32-S3/RS485 hardware through substitutions, but the Waveshare ESP32-S3-Relay-6CH is the hardware configuration used for development and testing. Other Growatt models and firmware versions may also use different registers. Please report confirmed working combinations in Issues.
+The package can be adapted to other ESP32-S3/RS485 hardware through substitutions, but the Waveshare ESP32-S3-Relay-1CH is the hardware configuration used for development and testing. Other Growatt models and firmware versions may also use different registers. Please report confirmed working combinations in Issues.
 
 ## Wiring
 
