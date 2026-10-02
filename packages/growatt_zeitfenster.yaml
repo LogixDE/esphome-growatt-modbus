@@ -1,0 +1,214 @@
+# ============================================================================
+# Ein Ladezeitfenster (Period ${period_num}, Holding-Register ${reg_addr}/${reg_addr_lo})
+# Bit-Layout 1:1 aus der privaten "Time"-Klasse in Growatt.cs:
+#   Bit 31    enable
+#   Bit 29-30 priority (0=load, 1=battery, 2=grid)
+#   Bit 24-28 startHour
+#   Bit 16-23 startMinute
+#   Bit 8-12  endHour
+#   Bit 0-7   endMinute
+#
+# WICHTIG: Die beiden 16-Bit-Register werden getrennt gelesen. Ein einzelner
+# U_DWORD-Sensor waere in ESPHome intern ein float und koennte bei diesem
+# gepackten 32-Bit-Wert Bits verlieren. Zwei U_WORD-Sensoren sind exakt.
+# ============================================================================
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: period${period_num}_raw_hi
+    internal: true
+    register_type: holding
+    address: ${reg_addr}
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: period${period_num}_raw_lo
+    internal: true
+    register_type: holding
+    address: ${reg_addr_lo}
+    value_type: U_WORD
+
+switch:
+  - platform: template
+    name: "Period ${period_num} enable"
+    id: period${period_num}_enable
+    icon: mdi:calendar-clock
+    optimistic: false
+    lambda: |-
+      if (!id(growatt_is_online)) return {};
+      if (id(growatt_write_in_progress)) return id(period${period_num}_enable).state;
+      if (isnan(id(period${period_num}_raw_hi).state) ||
+          isnan(id(period${period_num}_raw_lo).state)) return {};
+      uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                   (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+      return ((v >> 31) & 0x01) != 0;
+    turn_on_action:
+      - lambda: |-
+          if (!id(growatt_is_online) ||
+              isnan(id(period${period_num}_raw_hi).state) ||
+              isnan(id(period${period_num}_raw_lo).state)) {
+            ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
+            return;
+          }
+          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+          v |= (1u << 31);
+          uint16_t hi = (uint16_t)(v >> 16);
+          uint16_t lo = (uint16_t)(v & 0xFFFF);
+          id(period${period_num}_enable).publish_state(true);
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+    turn_off_action:
+      - lambda: |-
+          if (!id(growatt_is_online) ||
+              isnan(id(period${period_num}_raw_hi).state) ||
+              isnan(id(period${period_num}_raw_lo).state)) {
+            ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
+            return;
+          }
+          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+          v &= ~(1u << 31);
+          uint16_t hi = (uint16_t)(v >> 16);
+          uint16_t lo = (uint16_t)(v & 0xFFFF);
+          id(period${period_num}_enable).publish_state(false);
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+
+select:
+  - platform: template
+    name: "Period ${period_num} priority"
+    id: period${period_num}_priority
+    icon: mdi:format-list-bulleted
+    optimistic: false
+    options:
+      - "load"
+      - "battery"
+      - "grid"
+    lambda: |-
+      if (!id(growatt_is_online)) return {};
+      if (id(growatt_write_in_progress)) return id(period${period_num}_priority).current_option().str();
+      // Solange die Holding-Register noch nicht erfolgreich gelesen wurden,
+      // haben die internen Sensoren NaN. Dann keinen Select-Zustand publizieren.
+      if (isnan(id(period${period_num}_raw_hi).state) ||
+          isnan(id(period${period_num}_raw_lo).state)) {
+        return {};
+      }
+      uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                   (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+      uint8_t p = (v >> 29) & 0x03;
+      if (p > 2) {
+        return {};
+      }
+      static const char *opts[] = {"load", "battery", "grid"};
+      return std::string(opts[p]);
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online) ||
+              isnan(id(period${period_num}_raw_hi).state) ||
+              isnan(id(period${period_num}_raw_lo).state)) {
+            ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
+            return;
+          }
+          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+          uint32_t p = 0;
+          if (x == "load") p = 0;
+          else if (x == "battery") p = 1;
+          else if (x == "grid") p = 2;
+          v &= ~(0x03u << 29);
+          v |= (p << 29);
+          uint16_t hi = (uint16_t)(v >> 16);
+          uint16_t lo = (uint16_t)(v & 0xFFFF);
+          id(period${period_num}_priority).publish_state(x);
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+
+text:
+  - platform: template
+    name: "Period ${period_num} start"
+    id: period${period_num}_start
+    icon: mdi:clock-start
+    mode: text
+    optimistic: false
+    lambda: |-
+      if (!id(growatt_is_online)) return std::string("unavailable");
+      if (id(growatt_write_in_progress)) return id(period${period_num}_start).state;
+      if (isnan(id(period${period_num}_raw_hi).state) ||
+          isnan(id(period${period_num}_raw_lo).state)) return std::string("unavailable");
+      uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                   (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%02u:%02u",
+               (unsigned)((v >> 24) & 0x1F),
+               (unsigned)((v >> 16) & 0xFF));
+      return std::string(buf);
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online) ||
+              isnan(id(period${period_num}_raw_hi).state) ||
+              isnan(id(period${period_num}_raw_lo).state)) {
+            ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
+            return;
+          }
+          unsigned hour = 0, minute = 0;
+          if (sscanf(x.c_str(), "%u:%u", &hour, &minute) != 2 || hour > 23 || minute > 59) {
+            ESP_LOGE("zeitfenster", "Ungueltiges Zeitformat, erwarte HH:MM (00:00..23:59): %s", x.c_str());
+            return;
+          }
+          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+          v &= ~(0x1Fu << 24);
+          v &= ~(0xFFu << 16);
+          v |= ((hour & 0x1F) << 24);
+          v |= ((minute & 0xFF) << 16);
+          uint16_t hi = (uint16_t)(v >> 16);
+          uint16_t lo = (uint16_t)(v & 0xFFFF);
+          id(period${period_num}_start).publish_state(x);
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+
+  - platform: template
+    name: "Period ${period_num} end"
+    id: period${period_num}_end
+    icon: mdi:clock-end
+    mode: text
+    optimistic: false
+    lambda: |-
+      if (!id(growatt_is_online)) return std::string("unavailable");
+      if (id(growatt_write_in_progress)) return id(period${period_num}_end).state;
+      if (isnan(id(period${period_num}_raw_hi).state) ||
+          isnan(id(period${period_num}_raw_lo).state)) return std::string("unavailable");
+      uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                   (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%02u:%02u",
+               (unsigned)((v >> 8) & 0x1F),
+               (unsigned)(v & 0xFF));
+      return std::string(buf);
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online) ||
+              isnan(id(period${period_num}_raw_hi).state) ||
+              isnan(id(period${period_num}_raw_lo).state)) {
+            ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
+            return;
+          }
+          unsigned hour = 0, minute = 0;
+          if (sscanf(x.c_str(), "%u:%u", &hour, &minute) != 2 || hour > 23 || minute > 59) {
+            ESP_LOGE("zeitfenster", "Ungueltiges Zeitformat, erwarte HH:MM (00:00..23:59): %s", x.c_str());
+            return;
+          }
+          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
+                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
+          v &= ~(0x1Fu << 8);
+          v &= ~0xFFu;
+          v |= ((hour & 0x1F) << 8);
+          v |= (minute & 0xFF);
+          uint16_t hi = (uint16_t)(v >> 16);
+          uint16_t lo = (uint16_t)(v & 0xFFFF);
+          id(period${period_num}_end).publish_state(x);
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);

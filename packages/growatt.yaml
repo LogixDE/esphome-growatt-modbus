@@ -1,0 +1,1649 @@
+# ESPHome Growatt Modbus package
+# Repository: https://github.com/LogixDE/esphome-growatt-modbus
+# License: MIT
+#
+# This file intentionally contains no Wi-Fi, API, OTA or secret lookups.
+# Configure those in the local device YAML.
+
+substitutions:
+  modbus_device_address: "1"
+  update_interval: "5s"
+  modbus_baud_rate: "38400"
+  uart_tx_pin: "GPIO17"
+  uart_rx_pin: "GPIO18"
+  uart_flow_control_pin: "GPIO21"
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - binary_sensor.template.publish:
+          id: growatt_online
+          state: OFF
+
+# --- RS485 / Modbus RTU -------------------------------------------------------
+uart:
+  id: uart_bus
+  tx_pin: ${uart_tx_pin}
+  rx_pin: ${uart_rx_pin}
+  baud_rate: ${modbus_baud_rate}
+  flow_control_pin: ${uart_flow_control_pin}
+
+modbus:
+  id: modbus_bus
+  uart_id: uart_bus
+
+modbus_controller:
+  # Heartbeat: liest ausschliesslich Register 0. Erst nach einer erfolgreichen
+  # Antwort wird der eigentliche Daten-Controller angestossen.
+  - id: growatt_status
+    address: ${modbus_device_address}
+    modbus_id: modbus_bus
+    update_interval: ${update_interval}
+    max_cmd_retries: 1
+    offline_skip_updates: 0
+    on_offline:
+      then:
+        - lambda: |-
+            id(growatt_is_online) = false;
+            id(growatt_online).publish_state(false);
+
+            // Alle numerischen Mess-/Statuswerte invalidieren. NAN wird von
+            // ESPHome/HA als ungueltiger bzw. nicht verfuegbarer Sensorwert behandelt.
+            id(raw_inverter_state).publish_state(NAN);
+            id(inverter_power).publish_state(NAN);
+            id(inverter_powerac).publish_state(NAN);
+            id(inverter_energy_today).publish_state(NAN);
+            id(inverter_energy_total).publish_state(NAN);
+            id(inverter_freq).publish_state(NAN);
+            id(inverter_temp_1).publish_state(NAN);
+            id(inverter_temp_2).publish_state(NAN);
+            id(inverter_temp_3).publish_state(NAN);
+            id(inverter_failure_main).publish_state(NAN);
+            id(inverter_failure_sub).publish_state(NAN);
+            id(inverter_ac_1_voltage).publish_state(NAN);
+            id(inverter_ac_1_current).publish_state(NAN);
+            id(inverter_ac_1_power).publish_state(NAN);
+            id(inverter_ac_2_voltage).publish_state(NAN);
+            id(inverter_ac_2_current).publish_state(NAN);
+            id(inverter_ac_2_power).publish_state(NAN);
+            id(inverter_ac_3_voltage).publish_state(NAN);
+            id(inverter_ac_3_current).publish_state(NAN);
+            id(inverter_ac_3_power).publish_state(NAN);
+            id(inverter_dc_1_voltage).publish_state(NAN);
+            id(inverter_dc_1_current).publish_state(NAN);
+            id(inverter_dc_1_power).publish_state(NAN);
+            id(inverter_dc_1_energy_today).publish_state(NAN);
+            id(inverter_dc_1_energy_total).publish_state(NAN);
+            id(inverter_dc_2_voltage).publish_state(NAN);
+            id(inverter_dc_2_current).publish_state(NAN);
+            id(inverter_dc_2_power).publish_state(NAN);
+            id(inverter_dc_2_energy_today).publish_state(NAN);
+            id(inverter_dc_2_energy_total).publish_state(NAN);
+            id(inverter_dc_3_voltage).publish_state(NAN);
+            id(inverter_dc_3_current).publish_state(NAN);
+            id(inverter_dc_3_power).publish_state(NAN);
+            id(inverter_dc_3_energy_today).publish_state(NAN);
+            id(inverter_dc_3_energy_total).publish_state(NAN);
+            id(battery_fault).publish_state(NAN);
+            id(battery_warning).publish_state(NAN);
+            id(battery_voltage).publish_state(NAN);
+            id(battery_current).publish_state(NAN);
+            id(battery_soc).publish_state(NAN);
+            id(battery_dischargepower).publish_state(NAN);
+            id(battery_chargepower).publish_state(NAN);
+            id(battery_energy_discharged_today).publish_state(NAN);
+            id(battery_energy_discharged_total).publish_state(NAN);
+            id(battery_energy_charged_today).publish_state(NAN);
+            id(battery_energy_charged_total).publish_state(NAN);
+            id(raw_inverter_derating).publish_state(NAN);
+            id(raw_battery_deratingmode).publish_state(NAN);
+            id(raw_battery_mode_state).publish_state(NAN);
+
+            id(emeter_ac_1_voltage).publish_state(NAN);
+            id(emeter_ac_2_voltage).publish_state(NAN);
+            id(emeter_ac_3_voltage).publish_state(NAN);
+            id(emeter_ac_1_current).publish_state(NAN);
+            id(emeter_ac_2_current).publish_state(NAN);
+            id(emeter_ac_3_current).publish_state(NAN);
+            id(emeter_ac_1_power).publish_state(NAN);
+            id(emeter_ac_2_power).publish_state(NAN);
+            id(emeter_ac_3_power).publish_state(NAN);
+            id(emeter_power).publish_state(NAN);
+            id(emeter_energy_total_import).publish_state(NAN);
+            id(emeter_energy_total_export).publish_state(NAN);
+            id(battery_power_net).publish_state(NAN);
+            id(emeter_consumption).publish_state(NAN);
+            id(emeter_surplus).publish_state(NAN);
+
+            // Auch die intern gehaltenen Zeitfenster-Rohregister invalidieren.
+            id(period1_raw_hi).publish_state(NAN); id(period1_raw_lo).publish_state(NAN);
+            id(period2_raw_hi).publish_state(NAN); id(period2_raw_lo).publish_state(NAN);
+            id(period3_raw_hi).publish_state(NAN); id(period3_raw_lo).publish_state(NAN);
+            id(period4_raw_hi).publish_state(NAN); id(period4_raw_lo).publish_state(NAN);
+            id(period5_raw_hi).publish_state(NAN); id(period5_raw_lo).publish_state(NAN);
+            id(period6_raw_hi).publish_state(NAN); id(period6_raw_lo).publish_state(NAN);
+            id(period7_raw_hi).publish_state(NAN); id(period7_raw_lo).publish_state(NAN);
+            id(period8_raw_hi).publish_state(NAN); id(period8_raw_lo).publish_state(NAN);
+            id(period9_raw_hi).publish_state(NAN); id(period9_raw_lo).publish_state(NAN);
+
+            // Schreibbare Number-Entities bekommen ebenfalls keinen alten Wert mehr angezeigt.
+            id(battery_discharge_rate).publish_state(NAN);
+            id(battery_discharge_soc_offgrid).publish_state(NAN);
+            id(battery_discharge_soc_ongrid).publish_state(NAN);
+            id(battery_charge_rate).publish_state(NAN);
+            id(battery_charge_soc).publish_state(NAN);
+
+  # Alle eigentlichen Datenregister werden nur manuell nach einem erfolgreichen
+  # Heartbeat aktualisiert.
+  - id: growatt_data
+    address: ${modbus_device_address}
+    modbus_id: modbus_bus
+    update_interval: never
+    max_cmd_retries: 1
+    offline_skip_updates: 0
+
+globals:
+  - id: growatt_is_online
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_write_in_progress
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_write_ack_1
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_write_ack_2
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_readback_received
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_readback_1
+    type: uint16_t
+    restore_value: no
+    initial_value: '0'
+  - id: growatt_readback_2
+    type: uint16_t
+    restore_value: no
+    initial_value: '0'
+  - id: growatt_write_verified
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+binary_sensor:
+  - platform: template
+    name: "Growatt Modbus Online"
+    id: growatt_online
+    device_class: connectivity
+
+# ============================================================================
+# ALLE SENSOREN IN EINEM BLOCK (YAML erlaubt "sensor:" nur einmal pro Datei)
+#   1) Standard-Register FC3/FC4, 1:1 aus Mapping.cs
+#   2) interne Rohwerte fuer die Enum-Text-Sensoren weiter unten
+#   3) Smartmeter (FC32) als template-Sensoren, befuellt per Custom-Command (s.u.)
+#   4) berechnete Werte (battery/power, emeter/consumption, emeter/surplus)
+# ============================================================================
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_power
+    name: "PV total power"
+    register_type: read
+    address: 1
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_powerac
+    name: "Output power"
+    register_type: read
+    address: 35
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_energy_today
+    name: "Today generate energy"
+    register_type: read
+    address: 53
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_energy_total
+    name: "Total generate energy"
+    register_type: read
+    address: 55
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_freq
+    name: "Grid frequency"
+    register_type: read
+    address: 37
+    value_type: S_WORD
+    unit_of_measurement: "Hz"
+    device_class: "frequency"
+    state_class: "measurement"
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_temp_1
+    name: "Inverter temperature"
+    register_type: read
+    address: 93
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_temp_2
+    name: "IPM temperature"
+    register_type: read
+    address: 94
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_temp_3
+    name: "Boost temperature"
+    register_type: read
+    address: 95
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_failure_main
+    name: "Main fault code"
+    register_type: read
+    address: 105
+    value_type: S_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_failure_sub
+    name: "Sub fault code"
+    register_type: read
+    address: 107
+    value_type: S_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_1_voltage
+    name: "Phase 1 voltage"
+    register_type: read
+    address: 38
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_1_current
+    name: "Phase 1 current"
+    register_type: read
+    address: 39
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_1_power
+    name: "Phase 1 power"
+    register_type: read
+    address: 40
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_2_voltage
+    name: "Phase 2 voltage"
+    register_type: read
+    address: 42
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_2_current
+    name: "Phase 2 current"
+    register_type: read
+    address: 43
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_2_power
+    name: "Phase 2 power"
+    register_type: read
+    address: 44
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_3_voltage
+    name: "Phase 3 voltage"
+    register_type: read
+    address: 46
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_3_current
+    name: "Phase 3 current"
+    register_type: read
+    address: 47
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_ac_3_power
+    name: "Phase 3 power"
+    register_type: read
+    address: 48
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_1_voltage
+    name: "PV1 voltage"
+    register_type: read
+    address: 3
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_1_current
+    name: "PV1 current"
+    register_type: read
+    address: 4
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_1_power
+    name: "PV1 power"
+    register_type: read
+    address: 5
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_1_energy_today
+    name: "PV1 today generate energy"
+    register_type: read
+    address: 59
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_1_energy_total
+    name: "PV1 total generate energy"
+    register_type: read
+    address: 61
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_2_voltage
+    name: "PV2 voltage"
+    register_type: read
+    address: 7
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_2_current
+    name: "PV2 current"
+    register_type: read
+    address: 8
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_2_power
+    name: "PV2 power"
+    register_type: read
+    address: 9
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_2_energy_today
+    name: "PV2 today generate energy"
+    register_type: read
+    address: 63
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_2_energy_total
+    name: "PV2 total generate energy"
+    register_type: read
+    address: 65
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_3_voltage
+    name: "PV3 voltage"
+    register_type: read
+    address: 11
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_3_current
+    name: "PV3 current"
+    register_type: read
+    address: 12
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_3_power
+    name: "PV3 power"
+    register_type: read
+    address: 13
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_3_energy_today
+    name: "PV3 today generate energy"
+    register_type: read
+    address: 67
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_dc_3_energy_total
+    name: "PV3 total generate energy"
+    register_type: read
+    address: 69
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_fault
+    name: "Battery fault code"
+    register_type: read
+    address: 3167
+    value_type: S_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_warning
+    name: "Battery warning code"
+    register_type: read
+    address: 3168
+    value_type: S_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_voltage
+    name: "Battery voltage"
+    register_type: read
+    address: 3169
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_current
+    name: "Battery current"
+    register_type: read
+    address: 3170
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_soc
+    name: "State of charge"
+    register_type: read
+    address: 3171
+    value_type: S_WORD
+    unit_of_measurement: "%"
+    device_class: "battery"
+    state_class: "measurement"
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_dischargepower
+    name: "Battery discharge power"
+    register_type: read
+    address: 3178
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_chargepower
+    name: "Battery charge power"
+    register_type: read
+    address: 3180
+    value_type: S_DWORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_energy_discharged_today
+    name: "Battery discharged energy today"
+    register_type: read
+    address: 3125
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_energy_discharged_total
+    name: "Battery discharged energy total"
+    register_type: read
+    address: 3127
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_energy_charged_today
+    name: "Battery charged energy today"
+    register_type: read
+    address: 3129
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: battery_energy_charged_total
+    name: "Battery charged energy total"
+    register_type: read
+    address: 3131
+    value_type: S_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # ---- interne Rohwerte fuer die Enum-Sensoren (text_sensor weiter unten) ----
+  - platform: modbus_controller
+    modbus_controller_id: growatt_status
+    id: raw_inverter_state
+    internal: true
+    register_type: read
+    address: 0
+    value_type: S_WORD
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !isnan(x);'
+            then:
+              - lambda: |-
+                  id(growatt_is_online) = true;
+                  id(growatt_online).publish_state(true);
+              - if:
+                  condition:
+                    lambda: 'return !id(growatt_write_in_progress);'
+                  then:
+                    - component.update: growatt_data
+                    - script.execute: poll_emeter_fc32
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_inverter_derating
+    internal: true
+    register_type: read
+    address: 3086
+    value_type: S_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_deratingmode
+    internal: true
+    register_type: read
+    address: 3165
+    value_type: S_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_mode_state
+    internal: true
+    register_type: read
+    address: 3166
+    value_type: S_WORD
+
+  # ---- Smartmeter (Function Code 32 / 0x20), siehe Modbus.cs::SendFc32 ----
+  # ESPHomes deklarative modbus_controller-Sensoren unterstuetzen nur FC 2-4,
+  # daher hier als template-Sensoren, befuellt per modbus_client.send
+  # im Script poll_emeter_fc32 weiter unten in dieser Datei.
+  #
+  # WICHTIG: Dies ist der Teil, der am ehesten von der aus der Community
+  # bekannten "FC32 funktioniert manchmal nicht"-Problematik betroffen sein
+  # kann. Nach dem Flashen den Logger (DEBUG) beobachten:
+  #   - kommt ueberhaupt eine Antwort, oder Timeout?
+  #   - Log-Zeile "Modbus user-defined function 20 found" sollte erscheinen
+  # Falls Werte falsch skaliert wirken (Faktor 10/100 daneben), per
+  # logger.level: VERBOSE die Rohbytes ansehen und den Offset/die Bytefolge
+  # in der Lambda unten anpassen - das ist der einzige Abschnitt dieser
+  # Config, der ohne echte Hardware nicht abschliessend verifiziert werden kann.
+  - platform: template
+    name: "Grid voltage phase 1"
+    id: emeter_ac_1_voltage
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Grid voltage phase 2"
+    id: emeter_ac_2_voltage
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Grid voltage phase 3"
+    id: emeter_ac_3_voltage
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Grid current phase 1"
+    id: emeter_ac_1_current
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Grid current phase 2"
+    id: emeter_ac_2_current
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Grid current phase 3"
+    id: emeter_ac_3_current
+    unit_of_measurement: "A"
+    device_class: "current"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Active power phase 1"
+    id: emeter_ac_1_power
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Active power phase 2"
+    id: emeter_ac_2_power
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Active power phase 3"
+    id: emeter_ac_3_power
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Total grid power (import-export)"
+    id: emeter_power
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Imported energy total"
+    id: emeter_energy_total_import
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+  - platform: template
+    name: "Exported energy total"
+    id: emeter_energy_total_export
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+
+  # ---- berechnete Werte (siehe TimerShort() in Growatt.cs) ----
+  - platform: template
+    name: "Battery power (netto)"
+    id: battery_power_net
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return NAN;
+      return id(battery_chargepower).state - id(battery_dischargepower).state;
+
+  - platform: template
+    name: "Consumption"
+    id: emeter_consumption
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return NAN;
+      return id(inverter_powerac).state + id(emeter_power).state;
+
+  - platform: template
+    name: "Surplus"
+    id: emeter_surplus
+    unit_of_measurement: "W"
+    device_class: "power"
+    state_class: "measurement"
+    accuracy_decimals: 1
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return NAN;
+      return (-id(emeter_power).state) - id(battery_dischargepower).state;
+
+# ============================================================================
+# ENUM-WERTE als Text-Sensoren (entspricht den ValueFormatter-Lambdas in Mapping.cs)
+# ============================================================================
+  # ---- interne Rohwerte fuer schreibbare Holding-Register ----
+  # Diese Sensoren lesen den tatsaechlichen Growatt-Zustand. Waehrend eines
+  # Write+Verify-Zyklus duerfen sie die optimistische HA-Anzeige nicht
+  # ueberschreiben; erst das finale Verify publiziert den bestaetigten Wert.
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_discharge_rate_setting
+    internal: true
+    register_type: holding
+    address: 3036
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_discharge_rate).publish_state(x);'
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_discharge_soc_offgrid_setting
+    internal: true
+    register_type: holding
+    address: 3037
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_discharge_soc_offgrid).publish_state(x);'
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_charge_rate_setting
+    internal: true
+    register_type: holding
+    address: 3047
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_charge_rate).publish_state(x);'
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_charge_soc_setting
+    internal: true
+    register_type: holding
+    address: 3048
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_charge_soc).publish_state(x);'
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_charge_ac_setting
+    internal: true
+    register_type: holding
+    address: 3049
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_charge_ac).publish_state((((uint16_t)x) & 0x01) != 0);'
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: raw_battery_discharge_soc_ongrid_setting
+    internal: true
+    register_type: holding
+    address: 3067
+    value_type: U_WORD
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(growatt_write_in_progress);'
+            then:
+              - lambda: 'id(battery_discharge_soc_ongrid).publish_state(x);'
+
+text_sensor:
+  - platform: template
+    name: "Inverter run state"
+    id: inverter_state
+    icon: mdi:state-machine
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online) || isnan(id(raw_inverter_state).state)) return {"unavailable"};
+      int v = (int) id(raw_inverter_state).state;
+      switch (v) {
+        case 0: return {"Standby"};
+        case 1: return {"Normal"};
+        case 2: return {"Off-Grid"};
+        case 3: return {"Fault"};
+        default: return {to_string(v)};
+      }
+
+  - platform: template
+    name: "Derating mode"
+    id: inverter_derating
+    icon: mdi:speedometer-slow
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online) || isnan(id(raw_inverter_derating).state)) return {"unavailable"};
+      int v = (int) id(raw_inverter_derating).state;
+      static const char *reasons[] = {
+        "No derating (NA)", "Bus voltage high derating", "Aging fixed power derating",
+        "Grid voltage high derating", "Over-frequency reduce derating", "Single DC source mode derating",
+        "Inverter module over-temperature derating", "User activated output limit derating",
+        "Load speed process derating", "Over back by time derating",
+        "Internal environment over-temperature derating", "External environment over-temperature derating",
+        "Wire impedance derating", "Parallel inverter export limit derating",
+        "Single inverter export limit derating", "Load first mode derating",
+        "CT installation issue derating", "Zero current mode derating",
+        "Boost module over-temperature derating", "Zero power mode derating",
+        "Under-frequency increase derating", "Bus bar current limit derating"
+      };
+      if (v >= 0 && v < 22) return {reasons[v]};
+      return {to_string(v)};
+
+  - platform: template
+    name: "Battery mode"
+    id: battery_mode
+    icon: mdi:battery-sync
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online) || isnan(id(raw_battery_mode_state).state)) return {"unavailable"};
+      int v = ((int) id(raw_battery_mode_state).state) / 256;
+      switch (v) {
+        case 0: return {"sleep"};
+        case 1: return {"charge"};
+        case 2: return {"discharge"};
+        default: return {to_string(v)};
+      }
+
+  - platform: template
+    name: "Battery state"
+    id: battery_state
+    icon: mdi:battery-alert
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online) || isnan(id(raw_battery_mode_state).state)) return {"unavailable"};
+      int v = ((int) id(raw_battery_mode_state).state) % 256;
+      switch (v) {
+        case 0: return {"standby"};
+        case 1: return {"normal"};
+        case 2: return {"fault"};
+        case 3: return {"flash"};
+        default: return {to_string(v)};
+      }
+
+  - platform: template
+    name: "Battery derating mode"
+    id: battery_deratingmode
+    icon: mdi:battery-minus
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online) || isnan(id(raw_battery_deratingmode).state)) return {"unavailable"};
+      int v = (int) id(raw_battery_deratingmode).state;
+      static const char *reasons[] = {
+        "Normal, unrestricted", "System fault", "System warning",
+        "Maximum charging current of battery (charging)", "Battery high temperature (charging)",
+        "Reserve (charging)", "SOC setting limits (charging)", "Battery low temperature (charging)",
+        "High bus voltage (charging)", "Full charged (charging)", "Reserve (charging)",
+        "System warning no charging (charging)", "User setting the current of charging (charging)",
+        "BM charge current limited (charging)", "Reserve (charging)", "Reserve (charging)",
+        "Reserve (charging)", "Maximum battery current limit (discharge)",
+        "Battery discharge Enable (discharge)", "High bus discharge derating (discharge)",
+        "High temperature discharge derating (discharge)", "System warning no discharge (discharge)",
+        "User setting the current of discharging (discharge)", "BM discharge current limited (discharge)",
+        "Reserved (discharge)", "Reserved (discharge)", "Reserved (discharge)", "Reserved (discharge)",
+        "Reserved (discharge)", "Reserved (discharge)", "Reserved (discharge)", "Reserved (discharge)",
+        "Reserved (discharge)"
+      };
+      if (v >= 0 && v < 33) return {reasons[v]};
+      return {to_string(v)};
+
+# ============================================================================
+# BATTERIE-EINSTELLUNGEN (FC3 lesen / FC6 schreiben).
+# UI-Verhalten: Sollwert wird in HA sofort angezeigt. Alte Pollwerte werden
+# waehrend Write+Verify unterdrueckt. Nur bei endgueltigem Fehlschlag springt
+# die Entity auf den tatsaechlich zurueckgelesenen Wert zurueck.
+# ============================================================================
+number:
+  - platform: template
+    id: battery_discharge_rate
+    name: "Battery discharge rate setting"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3036 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_discharge_rate_setting).state))
+              id(battery_discharge_rate).publish_state(id(raw_battery_discharge_rate_setting).state);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_discharge_rate).publish_state(x);
+          id(growatt_write_verify).execute(3036, (int) x, 0, 0, 1);
+
+  - platform: template
+    id: battery_discharge_soc_offgrid
+    name: "Battery SOC off-grid discharge limit"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3037 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_discharge_soc_offgrid_setting).state))
+              id(battery_discharge_soc_offgrid).publish_state(id(raw_battery_discharge_soc_offgrid_setting).state);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_discharge_soc_offgrid).publish_state(x);
+          id(growatt_write_verify).execute(3037, (int) x, 0, 0, 1);
+
+  - platform: template
+    id: battery_discharge_soc_ongrid
+    name: "Battery SOC on-grid discharge limit"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3067 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_discharge_soc_ongrid_setting).state))
+              id(battery_discharge_soc_ongrid).publish_state(id(raw_battery_discharge_soc_ongrid_setting).state);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_discharge_soc_ongrid).publish_state(x);
+          id(growatt_write_verify).execute(3067, (int) x, 0, 0, 1);
+
+  - platform: template
+    id: battery_charge_rate
+    name: "Battery charge rate setting"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3047 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_charge_rate_setting).state))
+              id(battery_charge_rate).publish_state(id(raw_battery_charge_rate_setting).state);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_charge_rate).publish_state(x);
+          id(growatt_write_verify).execute(3047, (int) x, 0, 0, 1);
+
+  - platform: template
+    id: battery_charge_soc
+    name: "Battery SOC charge limit"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: box
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3048 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_charge_soc_setting).state))
+              id(battery_charge_soc).publish_state(id(raw_battery_charge_soc_setting).state);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_charge_soc).publish_state(x);
+          id(growatt_write_verify).execute(3048, (int) x, 0, 0, 1);
+
+switch:
+  - platform: template
+    id: battery_charge_ac
+    name: "Enable AC charging"
+    optimistic: true
+    turn_on_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3049 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_charge_ac_setting).state))
+              id(battery_charge_ac).publish_state((((uint16_t) id(raw_battery_charge_ac_setting).state) & 0x01) != 0);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_charge_ac).publish_state(true);
+          id(growatt_write_verify).execute(3049, 1, 0, 0, 1);
+    turn_off_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Write Reg 3049 verworfen: Wechselrichter offline");
+            if (!isnan(id(raw_battery_charge_ac_setting).state))
+              id(battery_charge_ac).publish_state((((uint16_t) id(raw_battery_charge_ac_setting).state) & 0x01) != 0);
+            return;
+          }
+          id(growatt_write_in_progress) = true;
+          id(battery_charge_ac).publish_state(false);
+          id(growatt_write_verify).execute(3049, 0, 0, 0, 1);
+
+
+# ============================================================================
+# Smartmeter-Polling (FC32) - nur nach erfolgreichem Heartbeat.
+# Byte-Layout/Offsets siehe Kommentar oben bei den emeter_*-Sensoren.
+# ============================================================================
+script:
+  # Robuster Schreibpfad fuer alle FC6-Einstellungen:
+  # Write -> ACK -> Readback -> Soll/Ist-Vergleich, bis zu 3 Versuche.
+  # Ein Register (register_count=1) fuer Batterieparameter/AC-Charging,
+  # zwei aufeinanderfolgende Register fuer ein komplettes Zeitfenster.
+  - id: growatt_write_verify
+    mode: queued
+    max_runs: 10
+    parameters:
+      address_1: int
+      value_1: int
+      address_2: int
+      value_2: int
+      register_count: int
+    then:
+      - if:
+          condition:
+            lambda: 'return id(growatt_is_online);'
+          then:
+            - lambda: |-
+                id(growatt_write_in_progress) = true;
+                id(growatt_write_verified) = false;
+                ESP_LOGI("growatt_write",
+                         "Starte Write+Verify: Reg %d = %d%s",
+                         address_1, value_1, register_count == 2 ? " (+ Folgeregister)" : "");
+            # Bereits gestartete Leseabfrage darf auslaufen; waehrend des Writes
+            # werden durch den Heartbeat keine neuen Datenpolls angestossen.
+            - delay: 250ms
+            - repeat:
+                count: 3
+                then:
+                  - if:
+                      condition:
+                        lambda: 'return !id(growatt_write_verified) && id(growatt_is_online);'
+                      then:
+                        - lambda: |-
+                            id(growatt_write_ack_1) = false;
+                            id(growatt_write_ack_2) = (register_count == 1);
+                            id(growatt_readback_received) = false;
+                        - modbus_client.write_single_register:
+                            modbus_id: modbus_bus
+                            address: ${modbus_device_address}
+                            start_address: !lambda 'return (uint16_t) address_1;'
+                            value: !lambda 'return (uint16_t) value_1;'
+                            on_response:
+                              then:
+                                - lambda: 'id(growatt_write_ack_1) = true;'
+                            on_not_sent:
+                              then:
+                                - lambda: |-
+                                    ESP_LOGW("growatt_write", "FC6 konnte nicht in die Sendewarteschlange");
+                        - wait_until:
+                            condition:
+                              lambda: 'return id(growatt_write_ack_1);'
+                            timeout: 2500ms
+                        - if:
+                            condition:
+                              lambda: 'return register_count == 2 && id(growatt_write_ack_1);'
+                            then:
+                              - modbus_client.write_single_register:
+                                  modbus_id: modbus_bus
+                                  address: ${modbus_device_address}
+                                  start_address: !lambda 'return (uint16_t) address_2;'
+                                  value: !lambda 'return (uint16_t) value_2;'
+                                  on_response:
+                                    then:
+                                      - lambda: 'id(growatt_write_ack_2) = true;'
+                                  on_not_sent:
+                                    then:
+                                      - lambda: |-
+                                          ESP_LOGW("growatt_write", "Zweiter FC6 konnte nicht in die Sendewarteschlange");
+                              - wait_until:
+                                  condition:
+                                    lambda: 'return id(growatt_write_ack_2);'
+                                  timeout: 2500ms
+                        - if:
+                            condition:
+                              lambda: 'return id(growatt_write_ack_1) && id(growatt_write_ack_2);'
+                            then:
+                              - delay: 750ms
+                              - lambda: 'id(growatt_readback_received) = false;'
+                              - modbus_client.read_holding_registers:
+                                  modbus_id: modbus_bus
+                                  address: ${modbus_device_address}
+                                  start_address: !lambda 'return (uint16_t) address_1;'
+                                  count: !lambda 'return (uint16_t) register_count;'
+                                  on_response:
+                                    then:
+                                      - lambda: |-
+                                          if (!values.empty()) id(growatt_readback_1) = values[0];
+                                          if (values.size() > 1) id(growatt_readback_2) = values[1];
+                                          id(growatt_readback_received) = true;
+                                  on_not_sent:
+                                    then:
+                                      - lambda: |-
+                                          ESP_LOGW("growatt_write", "Readback konnte nicht gesendet werden");
+                              - wait_until:
+                                  condition:
+                                    lambda: 'return id(growatt_readback_received);'
+                                  timeout: 2500ms
+                              - lambda: |-
+                                  if (id(growatt_readback_received)) {
+                                    const bool first_ok = id(growatt_readback_1) == (uint16_t) value_1;
+                                    const bool second_ok = register_count == 1 ||
+                                        id(growatt_readback_2) == (uint16_t) value_2;
+                                    if (first_ok && second_ok) {
+                                      id(growatt_write_verified) = true;
+                                      ESP_LOGI("growatt_write",
+                                               "Write verifiziert: Reg %d = %u%s",
+                                               address_1, id(growatt_readback_1),
+                                               register_count == 2 ? "; zweites Register ebenfalls OK" : "");
+                                    } else {
+                                      ESP_LOGW("growatt_write",
+                                               "Readback abweichend: Reg %d Soll=%u Ist=%u%s",
+                                               address_1, (uint16_t)value_1, id(growatt_readback_1),
+                                               register_count == 2 ? "; auch zweites Register wird geprueft" : "");
+                                    }
+                                  }
+                        - if:
+                            condition:
+                              lambda: 'return !id(growatt_write_verified);'
+                            then:
+                              - delay: 200ms
+            # Manche Growatt-Modelle uebernehmen Holding-Register zeitverzoegert.
+            # Deshalb den optimistischen HA-Zustand waehrend einer kurzen Settling-
+            # Phase festhalten und erst danach einen finalen Readback durchfuehren.
+            - if:
+                condition:
+                  lambda: 'return !id(growatt_write_verified) && id(growatt_is_online);'
+                then:
+                  - delay: 3s
+                  - lambda: |-
+                      id(growatt_readback_received) = false;
+                      ESP_LOGI("growatt_write", "Settling-Zeit abgelaufen, finaler Readback fuer Reg %d", address_1);
+                  - modbus_client.read_holding_registers:
+                      modbus_id: modbus_bus
+                      address: ${modbus_device_address}
+                      start_address: !lambda 'return (uint16_t) address_1;'
+                      count: !lambda 'return (uint16_t) register_count;'
+                      on_response:
+                        then:
+                          - lambda: |-
+                              if (!values.empty()) id(growatt_readback_1) = values[0];
+                              if (values.size() > 1) id(growatt_readback_2) = values[1];
+                              id(growatt_readback_received) = true;
+                  - wait_until:
+                      condition:
+                        lambda: 'return id(growatt_readback_received);'
+                      timeout: 2500ms
+                  - lambda: |-
+                      if (id(growatt_readback_received)) {
+                        const bool first_ok = id(growatt_readback_1) == (uint16_t) value_1;
+                        const bool second_ok = register_count == 1 ||
+                            id(growatt_readback_2) == (uint16_t) value_2;
+                        if (first_ok && second_ok) {
+                          id(growatt_write_verified) = true;
+                          ESP_LOGI("growatt_write", "Write durch finalen Readback verifiziert");
+                        }
+                      }
+            - lambda: |-
+                if (id(growatt_write_verified)) {
+                  // Erfolg: Fuer die sichtbaren Batterie-Controls den angeforderten
+                  // Sollwert beibehalten. So kann kein spaeter/staler Pollwert die
+                  // HA-Anzeige waehrend der Transaktion zurueckspringen lassen.
+                  switch (address_1) {
+                    case 3036: id(battery_discharge_rate).publish_state((float)value_1); break;
+                    case 3037: id(battery_discharge_soc_offgrid).publish_state((float)value_1); break;
+                    case 3067: id(battery_discharge_soc_ongrid).publish_state((float)value_1); break;
+                    case 3047: id(battery_charge_rate).publish_state((float)value_1); break;
+                    case 3048: id(battery_charge_soc).publish_state((float)value_1); break;
+                    case 3049: id(battery_charge_ac).publish_state(((uint16_t)value_1 & 0x01) != 0); break;
+                    case 3038: id(period1_raw_hi).publish_state((float)value_1); id(period1_raw_lo).publish_state((float)value_2); break;
+                    case 3040: id(period2_raw_hi).publish_state((float)value_1); id(period2_raw_lo).publish_state((float)value_2); break;
+                    case 3042: id(period3_raw_hi).publish_state((float)value_1); id(period3_raw_lo).publish_state((float)value_2); break;
+                    case 3044: id(period4_raw_hi).publish_state((float)value_1); id(period4_raw_lo).publish_state((float)value_2); break;
+                    case 3050: id(period5_raw_hi).publish_state((float)value_1); id(period5_raw_lo).publish_state((float)value_2); break;
+                    case 3052: id(period6_raw_hi).publish_state((float)value_1); id(period6_raw_lo).publish_state((float)value_2); break;
+                    case 3054: id(period7_raw_hi).publish_state((float)value_1); id(period7_raw_lo).publish_state((float)value_2); break;
+                    case 3056: id(period8_raw_hi).publish_state((float)value_1); id(period8_raw_lo).publish_state((float)value_2); break;
+                    case 3058: id(period9_raw_hi).publish_state((float)value_1); id(period9_raw_lo).publish_state((float)value_2); break;
+                    default: break;
+                  }
+                  ESP_LOGI("growatt_write", "Write stabil bestaetigt (Startreg %d)", address_1);
+                } else {
+                  ESP_LOGE("growatt_write",
+                           "Write nach Retry + Settling NICHT verifiziert (Startreg %d)", address_1);
+
+                  // Erst jetzt gilt der Schreibvorgang als wirklich fehlgeschlagen.
+                  // Nur in diesem Fall auf den tatsaechlich gelesenen Istwert
+                  // zurueckspringen.
+                  if (id(growatt_readback_received)) {
+                    switch (address_1) {
+                      case 3036: id(battery_discharge_rate).publish_state(id(growatt_readback_1)); break;
+                      case 3037: id(battery_discharge_soc_offgrid).publish_state(id(growatt_readback_1)); break;
+                      case 3067: id(battery_discharge_soc_ongrid).publish_state(id(growatt_readback_1)); break;
+                      case 3047: id(battery_charge_rate).publish_state(id(growatt_readback_1)); break;
+                      case 3048: id(battery_charge_soc).publish_state(id(growatt_readback_1)); break;
+                      case 3049: id(battery_charge_ac).publish_state((id(growatt_readback_1) & 0x01) != 0); break;
+                      case 3038: id(period1_raw_hi).publish_state(id(growatt_readback_1)); id(period1_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3040: id(period2_raw_hi).publish_state(id(growatt_readback_1)); id(period2_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3042: id(period3_raw_hi).publish_state(id(growatt_readback_1)); id(period3_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3044: id(period4_raw_hi).publish_state(id(growatt_readback_1)); id(period4_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3050: id(period5_raw_hi).publish_state(id(growatt_readback_1)); id(period5_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3052: id(period6_raw_hi).publish_state(id(growatt_readback_1)); id(period6_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3054: id(period7_raw_hi).publish_state(id(growatt_readback_1)); id(period7_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3056: id(period8_raw_hi).publish_state(id(growatt_readback_1)); id(period8_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      case 3058: id(period9_raw_hi).publish_state(id(growatt_readback_1)); id(period9_raw_lo).publish_state(id(growatt_readback_2)); break;
+                      default: break;
+                    }
+                  }
+                }
+            # Den Polling-Schutz nach erfolgreicher Verifikation noch kurz halten,
+            # damit ein bereits vorbereiteter/staler Lesezyklus die UI nicht
+            # unmittelbar wieder mit dem alten Registerwert ueberschreibt.
+            - if:
+                condition:
+                  lambda: 'return id(growatt_write_verified);'
+                then:
+                  - delay: 1500ms
+            - lambda: 'id(growatt_write_in_progress) = false;'
+            # Kein sofortiger Full-Poll: Der naechste Heartbeat startet den
+            # normalen Datenpoll ohnehin. Das vermeidet einen Stale-Read direkt
+            # nach dem Write.
+          else:
+            - lambda: |-
+                ESP_LOGW("growatt_write", "Schreibvorgang verworfen: Wechselrichter offline");
+
+  - id: poll_emeter_fc32
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(growatt_is_online) && !id(growatt_write_in_progress);'
+          then:
+            - modbus_client.send:
+                modbus_id: modbus_bus
+                address: ${modbus_device_address}
+                # PDU = Function Code 0x20 + Startregister 2 + 56 Register.
+                # Adresse und CRC werden von ESPHome automatisch ergaenzt.
+                pdu: [0x20, 0x00, 0x02, 0x00, 0x38]
+                on_response:
+                  - lambda: |-
+                      // modbus_client.send liefert die rohe Response-PDU inklusive Function Code.
+                      // Erwartet: [0x20][ByteCount=0x70][112 Datenbytes].
+                      if (response.size() < 2) {
+                        ESP_LOGW("growatt_fc32", "FC32-Antwort zu kurz: %u Byte", (unsigned) response.size());
+                        return;
+                      }
+                      if (response[0] != 0x20) {
+                        ESP_LOGW("growatt_fc32", "Unerwarteter Function Code 0x%02X", response[0]);
+                        return;
+                      }
+
+                      const size_t byte_count = response[1];
+                      if (response.size() < byte_count + 2) {
+                        ESP_LOGW("growatt_fc32",
+                                 "FC32-Antwort zu kurz: ByteCount=%u, Response=%u",
+                                 (unsigned) byte_count, (unsigned) response.size());
+                        return;
+                      }
+
+                      ESP_LOGD("growatt_fc32",
+                               "FC32-Antwort: response.size=%u, ByteCount=%u",
+                               (unsigned) response.size(), (unsigned) byte_count);
+
+                      const auto payload = response.subspan(2, byte_count);
+
+                      auto reg32 = [&](int value_index) -> float {
+                        const size_t i = (size_t) value_index * 4;
+                        if (i + 3 >= payload.size()) return NAN;
+                        uint32_t raw = ((uint32_t) payload[i] << 24) |
+                                       ((uint32_t) payload[i + 1] << 16) |
+                                       ((uint32_t) payload[i + 2] << 8) |
+                                       (uint32_t) payload[i + 3];
+                        return (int32_t) raw / 10.0f;
+                      };
+
+                      id(emeter_ac_1_voltage).publish_state(reg32(0));
+                      id(emeter_ac_2_voltage).publish_state(reg32(1));
+                      id(emeter_ac_3_voltage).publish_state(reg32(2));
+                      id(emeter_ac_1_current).publish_state(reg32(3));
+                      id(emeter_ac_2_current).publish_state(reg32(4));
+                      id(emeter_ac_3_current).publish_state(reg32(5));
+                      id(emeter_ac_1_power).publish_state(reg32(6));
+                      id(emeter_ac_2_power).publish_state(reg32(7));
+                      id(emeter_ac_3_power).publish_state(reg32(8));
+                      id(emeter_power).publish_state(reg32(18));
+                      id(emeter_energy_total_import).publish_state(reg32(26));
+                      id(emeter_energy_total_export).publish_state(reg32(27));
+                on_error:
+                  - lambda: |-
+                      ESP_LOGW("growatt_fc32", "FC32 Modbus-Exception: %d", (int) exception_code);
+                      id(emeter_ac_1_voltage).publish_state(NAN);
+                      id(emeter_ac_2_voltage).publish_state(NAN);
+                      id(emeter_ac_3_voltage).publish_state(NAN);
+                      id(emeter_ac_1_current).publish_state(NAN);
+                      id(emeter_ac_2_current).publish_state(NAN);
+                      id(emeter_ac_3_current).publish_state(NAN);
+                      id(emeter_ac_1_power).publish_state(NAN);
+                      id(emeter_ac_2_power).publish_state(NAN);
+                      id(emeter_ac_3_power).publish_state(NAN);
+                      id(emeter_power).publish_state(NAN);
+                      id(emeter_energy_total_import).publish_state(NAN);
+                      id(emeter_energy_total_export).publish_state(NAN);
+                on_no_response:
+                  - lambda: |-
+                      ESP_LOGW("growatt_fc32", "Keine Antwort auf FC32-Smartmeter-Abfrage");
+                      id(emeter_ac_1_voltage).publish_state(NAN);
+                      id(emeter_ac_2_voltage).publish_state(NAN);
+                      id(emeter_ac_3_voltage).publish_state(NAN);
+                      id(emeter_ac_1_current).publish_state(NAN);
+                      id(emeter_ac_2_current).publish_state(NAN);
+                      id(emeter_ac_3_current).publish_state(NAN);
+                      id(emeter_ac_1_power).publish_state(NAN);
+                      id(emeter_ac_2_power).publish_state(NAN);
+                      id(emeter_ac_3_power).publish_state(NAN);
+                      id(emeter_power).publish_state(NAN);
+                      id(emeter_energy_total_import).publish_state(NAN);
+                      id(emeter_energy_total_export).publish_state(NAN);

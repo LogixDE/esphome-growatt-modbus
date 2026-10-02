@@ -1,0 +1,90 @@
+# Example device configuration for https://github.com/LogixDE/esphome-growatt-modbus
+
+substitutions:
+  device_name: "growatt-inverter"
+  friendly_name: "Growatt Inverter"
+
+  # Growatt / RS485 settings
+  modbus_device_address: "1"
+  update_interval: "5s"
+  modbus_baud_rate: "38400"
+  uart_tx_pin: "GPIO17"
+  uart_rx_pin: "GPIO18"
+  uart_flow_control_pin: "GPIO21"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  framework:
+    type: arduino
+  variant: esp32s3
+
+logger:
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+packages:
+  growatt:
+    url: https://github.com/LogixDE/esphome-growatt-modbus
+    ref: v1.0.0
+    refresh: 1d
+    files:
+      - path: packages/growatt.yaml
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "1"
+          reg_addr: "3038"
+          reg_addr_lo: "3039"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "2"
+          reg_addr: "3040"
+          reg_addr_lo: "3041"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "3"
+          reg_addr: "3042"
+          reg_addr_lo: "3043"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "4"
+          reg_addr: "3044"
+          reg_addr_lo: "3045"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "5"
+          reg_addr: "3050"
+          reg_addr_lo: "3051"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "6"
+          reg_addr: "3052"
+          reg_addr_lo: "3053"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "7"
+          reg_addr: "3054"
+          reg_addr_lo: "3055"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "8"
+          reg_addr: "3056"
+          reg_addr_lo: "3057"
+      - path: packages/growatt_zeitfenster.yaml
+        vars:
+          period_num: "9"
+          reg_addr: "3058"
+          reg_addr_lo: "3059"

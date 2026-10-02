@@ -1,0 +1,22 @@
+name: Register map / model support
+description: Submit confirmed Growatt model or register information
+title: "[Register]: "
+labels: [enhancement]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Growatt model
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+  - type: textarea
+    id: registers
+    attributes:
+      label: Register information
+      description: Include address, function code, width, signedness, scaling and how it was verified.
+    validations:
+      required: true

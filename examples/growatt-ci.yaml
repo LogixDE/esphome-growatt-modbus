@@ -1,0 +1,30 @@
+substitutions:
+  modbus_device_address: "1"
+  update_interval: "5s"
+  modbus_baud_rate: "38400"
+  uart_tx_pin: "GPIO17"
+  uart_rx_pin: "GPIO18"
+  uart_flow_control_pin: "GPIO21"
+
+esphome:
+  name: growatt-ci
+
+esp32:
+  framework:
+    type: arduino
+  variant: esp32s3
+
+logger:
+  level: INFO
+
+packages:
+  growatt_core: !include ../packages/growatt.yaml
+  zeitfenster_1: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "1", reg_addr: "3038", reg_addr_lo: "3039"}}
+  zeitfenster_2: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "2", reg_addr: "3040", reg_addr_lo: "3041"}}
+  zeitfenster_3: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "3", reg_addr: "3042", reg_addr_lo: "3043"}}
+  zeitfenster_4: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "4", reg_addr: "3044", reg_addr_lo: "3045"}}
+  zeitfenster_5: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "5", reg_addr: "3050", reg_addr_lo: "3051"}}
+  zeitfenster_6: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "6", reg_addr: "3052", reg_addr_lo: "3053"}}
+  zeitfenster_7: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "7", reg_addr: "3054", reg_addr_lo: "3055"}}
+  zeitfenster_8: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "8", reg_addr: "3056", reg_addr_lo: "3057"}}
+  zeitfenster_9: !include {file: ../packages/growatt_zeitfenster.yaml, vars: {period_num: "9", reg_addr: "3058", reg_addr_lo: "3059"}}
