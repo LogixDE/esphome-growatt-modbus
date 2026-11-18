@@ -39,7 +39,7 @@ ota:
 packages:
   growatt:
     url: https://github.com/LogixDE/esphome-growatt-modbus
-    ref: v1.0.0
+    ref: v1.0.1
     refresh: 1d
     files:
       - path: packages/growatt.yaml

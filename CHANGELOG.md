@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.0.1] - 2026-11-18
 
 ### Changed
 - Set ESPHome `project` metadata so Home Assistant shows the device as "by Fabian Harder" (model "Growatt Modbus") instead of "by Espressif".

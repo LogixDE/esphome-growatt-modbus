@@ -17,7 +17,7 @@ esphome:
   # Shown in Home Assistant as manufacturer ("by Fabian Harder") and model.
   project:
     name: "Fabian Harder.Growatt Modbus"
-    version: "1.0.0"
+    version: "1.0.1"
   on_boot:
     priority: -100
     then:
