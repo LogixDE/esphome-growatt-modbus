@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Set ESPHome `project` metadata so Home Assistant shows the device as "by Fabian Harder" (model "Growatt Modbus") instead of "by Espressif".
+
 ## [1.0.0] - 2026-10-02
 
 - Document tested hardware: Waveshare ESP32-S3-Relay-6CH.

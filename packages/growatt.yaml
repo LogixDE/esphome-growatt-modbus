@@ -14,6 +14,10 @@ substitutions:
   uart_flow_control_pin: "GPIO21"
 
 esphome:
+  # Shown in Home Assistant as manufacturer ("by Fabian Harder") and model.
+  project:
+    name: "Fabian Harder.Growatt Modbus"
+    version: "1.0.0"
   on_boot:
     priority: -100
     then:
