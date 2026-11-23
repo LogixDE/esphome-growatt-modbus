@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-11-23
+
+### Added
+- `PV energy today` / `PV energy total`: PV production calculated as the sum of the PV1–PV3 tracker registers.
+- `PV energy total (register)` (diagnostic): Growatt `Epv_total` register 91/92 for comparison; not populated on every model.
+
+### Changed
+- Documented that registers 53/55 (`Today/Total generate energy`) are the inverter's AC output and include battery discharge. Entity names are unchanged so existing Home Assistant entity IDs keep working.
+
 ## [1.0.1] - 2026-11-18
 
 ### Changed

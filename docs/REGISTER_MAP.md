@@ -16,9 +16,17 @@ This document describes the addresses implemented by the ESPHome package. It is 
 | AC phase 1 V / A / W | 38 / 39 / 40 | 1 / 1 / 2 | /10 |
 | AC phase 2 V / A / W | 42 / 43 / 44 | 1 / 1 / 2 | /10 |
 | AC phase 3 V / A / W | 46 / 47 / 48 | 1 / 1 / 2 | /10 |
-| Energy today / total | 53 / 55 | 2 / 2 | /10 kWh |
+| Energy today / total (AC output, incl. battery discharge) | 53 / 55 | 2 / 2 | /10 kWh |
+| PV1 energy today / total | 59 / 61 | 2 / 2 | /10 kWh |
+| PV2 energy today / total | 63 / 65 | 2 / 2 | /10 kWh |
+| PV3 energy today / total | 67 / 69 | 2 / 2 | /10 kWh |
+| PV energy total (Epv_total, diagnostic) | 91 | 2 | /10 kWh |
 | Inverter temperatures | 93 / 94 / 95 | 1 each | /10 °C |
 | Main / sub fault | 105 / 107 | 1 each | raw |
+
+### Calculated PV energy
+
+`PV energy today` and `PV energy total` are calculated in ESPHome as the sum of the PV1–PV3 tracker registers. Use these (not registers 53/55) for PV production, e.g. as the solar source in the Home Assistant Energy dashboard. Registers 53/55 contain the inverter's AC output, which on hybrid inverters includes battery discharge.
 
 ## Battery input registers (FC4)
 
