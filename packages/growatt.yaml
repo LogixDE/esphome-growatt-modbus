@@ -17,7 +17,7 @@ esphome:
   # Shown in Home Assistant as manufacturer ("by Fabian Harder") and model.
   project:
     name: "Fabian Harder.Growatt Modbus"
-    version: "1.0.1"
+    version: "1.1.0"
   on_boot:
     priority: -100
     then:
@@ -117,6 +117,9 @@ modbus_controller:
             id(emeter_energy_total_import).publish_state(NAN);
             id(emeter_energy_total_export).publish_state(NAN);
             id(battery_power_net).publish_state(NAN);
+            id(pv_energy_today).publish_state(NAN);
+            id(pv_energy_total).publish_state(NAN);
+            id(inverter_epv_total).publish_state(NAN);
             id(emeter_consumption).publish_state(NAN);
             id(emeter_surplus).publish_state(NAN);
 
@@ -223,6 +226,11 @@ sensor:
     filters:
       - multiply: 0.1
 
+  # Register 53/55 (Eac today/total): AC-Ausgangsenergie des Wechselrichters.
+  # Beim Hybrid-WR ist hier auch die Akku-Entladung enthalten - das ist NICHT
+  # die PV-Erzeugung (dafuer pv_energy_today / pv_energy_total weiter unten).
+  # Name bewusst unveraendert: ESPHome leitet die unique_id aus dem Namen ab,
+  # eine Umbenennung wuerde in Home Assistant neue Entities erzeugen.
   - platform: modbus_controller
     modbus_controller_id: growatt_data
     id: inverter_energy_today
@@ -264,6 +272,23 @@ sensor:
     accuracy_decimals: 2
     filters:
       - multiply: 0.01
+
+  # Register 91/92 (Epv_total laut Growatt-Protokoll): PV-Energie gesamt.
+  # Nicht von jedem Modell befuellt - zum Abgleich mit pv_energy_total.
+  - platform: modbus_controller
+    modbus_controller_id: growatt_data
+    id: inverter_epv_total
+    name: "PV energy total (register)"
+    entity_category: diagnostic
+    register_type: read
+    address: 91
+    value_type: U_DWORD
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: growatt_data
@@ -974,6 +999,41 @@ sensor:
     lambda: |-
       if (!id(growatt_is_online)) return NAN;
       return id(inverter_powerac).state + id(emeter_power).state;
+
+  # PV-Erzeugung = Summe der MPP-Tracker (Register 59/63/67 bzw. 61/65/69).
+  # Liefert ein Tracker keinen Wert, wird NAN gemeldet statt einer zu kleinen
+  # Summe (total_increasing wuerde einen Rueckgang als Zaehler-Reset werten).
+  - platform: template
+    name: "PV energy today"
+    id: pv_energy_today
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return NAN;
+      const float a = id(inverter_dc_1_energy_today).state;
+      const float b = id(inverter_dc_2_energy_today).state;
+      const float c = id(inverter_dc_3_energy_today).state;
+      if (std::isnan(a) || std::isnan(b) || std::isnan(c)) return NAN;
+      return a + b + c;
+
+  - platform: template
+    name: "PV energy total"
+    id: pv_energy_total
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 1
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return NAN;
+      const float a = id(inverter_dc_1_energy_total).state;
+      const float b = id(inverter_dc_2_energy_total).state;
+      const float c = id(inverter_dc_3_energy_total).state;
+      if (std::isnan(a) || std::isnan(b) || std::isnan(c)) return NAN;
+      return a + b + c;
 
   - platform: template
     name: "Surplus"
