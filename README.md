@@ -81,7 +81,12 @@ packages:
 | Substitution | Default | Description |
 |---|---:|---|
 | `modbus_device_address` | `1` | Growatt Modbus slave address |
-| `update_interval` | `5s` | Heartbeat/poll interval |
+| `update_interval` | `5s` | Heartbeat interval; also the scheduler resolution |
+| `fast_poll_ms` | `5000` | Power, voltage, current, SOC and status registers |
+| `temperature_poll_ms` | `30000` | Inverter temperatures |
+| `energy_poll_ms` | `60000` | Energy counters (today/total) |
+| `settings_poll_ms` | `60000` | Writable holding registers (settings, time windows) |
+| `meter_poll_ms` | `5000` | Smart meter (FC32) |
 | `modbus_baud_rate` | `38400` | UART baud rate |
 | `uart_tx_pin` | `GPIO17` | RS485 UART TX |
 | `uart_rx_pin` | `GPIO18` | RS485 UART RX |
@@ -89,7 +94,7 @@ packages:
 
 ## Communication behaviour
 
-A lightweight heartbeat reads inverter register `0` first. Only after a successful response does the package trigger the larger inverter/battery poll and the smart-meter FC32 request. If the inverter stops responding, `Growatt Modbus Online` turns off and dependent values are invalidated instead of leaving stale values in Home Assistant.
+A lightweight heartbeat reads inverter register `0` first. Only after a successful response does the package poll the register groups that are due (fast values, temperatures, energy counters, settings, smart meter), each with its own period. Periods are rounded up to heartbeat ticks; missed ticks are coalesced instead of causing catch-up bursts. No poll starts while a write is in progress. If the inverter stops responding, `Growatt Modbus Online` turns off and dependent values are invalidated instead of leaving stale values in Home Assistant.
 
 ## Verified writes
 

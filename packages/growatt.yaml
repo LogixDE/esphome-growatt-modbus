@@ -7,7 +7,14 @@
 
 substitutions:
   modbus_device_address: "1"
-  update_interval: "5s"
+  update_interval: "5s"  # Heartbeat; also the scheduler resolution.
+  # Poll periods in milliseconds, evaluated after a successful heartbeat.
+  # Effective periods are rounded up to heartbeat ticks; no catch-up bursts.
+  fast_poll_ms: "5000"
+  temperature_poll_ms: "30000"
+  energy_poll_ms: "60000"
+  settings_poll_ms: "60000"
+  meter_poll_ms: "5000"
   modbus_baud_rate: "38400"
   uart_tx_pin: "GPIO17"
   uart_rx_pin: "GPIO18"
@@ -43,18 +50,20 @@ modbus_controller:
   - id: growatt_status
     address: ${modbus_device_address}
     modbus_id: modbus_bus
-    update_interval: ${update_interval}
+    update_interval: never
     max_cmd_retries: 1
     offline_skip_updates: 0
     on_offline:
       then:
         - lambda: |-
             id(growatt_is_online) = false;
+            id(growatt_poll_initialized) = false;
             id(growatt_online).publish_state(false);
 
             // Alle numerischen Mess-/Statuswerte invalidieren. NAN wird von
             // ESPHome/HA als ungueltiger bzw. nicht verfuegbarer Sensorwert behandelt.
             id(raw_inverter_state).publish_state(NAN);
+            id(raw_inverter_operating_enable).publish_state(NAN);
             id(inverter_power).publish_state(NAN);
             id(inverter_powerac).publish_state(NAN);
             id(inverter_energy_today).publish_state(NAN);
@@ -150,7 +159,109 @@ modbus_controller:
     max_cmd_retries: 1
     offline_skip_updates: 0
 
+  - id: growatt_temperature
+    address: ${modbus_device_address}
+    modbus_id: modbus_bus
+    update_interval: never
+    max_cmd_retries: 1
+    offline_skip_updates: 0
+
+  - id: growatt_energy
+    address: ${modbus_device_address}
+    modbus_id: modbus_bus
+    update_interval: never
+    max_cmd_retries: 1
+    offline_skip_updates: 0
+
+  - id: growatt_settings
+    address: ${modbus_device_address}
+    modbus_id: modbus_bus
+    update_interval: never
+    max_cmd_retries: 1
+    offline_skip_updates: 0
+
+# Never enqueue a new poll batch while the previous batch or a write is active.
+# The hub drains its in-flight response and retries before a write can start.
+interval:
+  - interval: ${update_interval}
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(growatt_write_in_progress) && (id(modbus_bus).tx_buffer_empty() && !id(modbus_bus).tx_blocked());'
+          then:
+            - component.update: growatt_status
+
+  # Coalesce missed ticks into one pending refresh, never a catch-up queue.
+  - interval: ${fast_poll_ms}ms
+    then:
+      - lambda: 'id(growatt_due_fast) = true;'
+
+  # Coalesce missed ticks into one pending refresh, never a catch-up queue.
+  - interval: ${temperature_poll_ms}ms
+    then:
+      - lambda: 'id(growatt_due_temperature) = true;'
+
+  # Coalesce missed ticks into one pending refresh, never a catch-up queue.
+  - interval: ${energy_poll_ms}ms
+    then:
+      - lambda: 'id(growatt_due_energy) = true;'
+
+  # Coalesce missed ticks into one pending refresh, never a catch-up queue.
+  - interval: ${settings_poll_ms}ms
+    then:
+      - lambda: 'id(growatt_due_settings) = true;'
+
+  # Coalesce missed ticks into one pending refresh, never a catch-up queue.
+  - interval: ${meter_poll_ms}ms
+    then:
+      - lambda: 'id(growatt_due_meter) = true;'
+
 globals:
+  # Includes the active job. This holds the poll lock across queue handovers.
+  - id: growatt_write_jobs
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: growatt_due_meter
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: growatt_due_settings
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: growatt_due_energy
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: growatt_due_temperature
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: growatt_due_fast
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  - id: growatt_poll_initialized
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_target_2
+    type: uint16_t
+    restore_value: no
+    initial_value: '0'
+  - id: growatt_target_1
+    type: uint16_t
+    restore_value: no
+    initial_value: '0'
+  - id: growatt_target_ready
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: growatt_request_done
+    type: bool
+    restore_value: no
+    initial_value: 'false'
   - id: growatt_is_online
     type: bool
     restore_value: no
@@ -198,6 +309,22 @@ binary_sensor:
 #   4) berechnete Werte (battery/power, emeter/consumption, emeter/surplus)
 # ============================================================================
 sensor:
+  # FC3 holding register 0 is the operating command, NOT FC4 input register 0.
+  # C# reference: battery/state/set -> ModbusWrite(0, on ? 1 : 2).
+  - platform: modbus_controller
+    modbus_controller_id: growatt_settings
+    id: raw_inverter_operating_enable
+    internal: true
+    register_type: holding
+    address: 0
+    value_type: U_WORD
+    on_value:
+      then:
+        - lambda: |-
+            if (id(growatt_write_in_progress)) return;
+            if (x == 1.0f) id(inverter_operating_enable).publish_state(true);
+            else if (x == 2.0f) id(inverter_operating_enable).publish_state(false);
+
   - platform: modbus_controller
     modbus_controller_id: growatt_data
     id: inverter_power
@@ -232,7 +359,7 @@ sensor:
   # Name bewusst unveraendert: ESPHome leitet die unique_id aus dem Namen ab,
   # eine Umbenennung wuerde in Home Assistant neue Entities erzeugen.
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_energy_today
     name: "Today generate energy"
     register_type: read
@@ -246,7 +373,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_energy_total
     name: "Total generate energy"
     register_type: read
@@ -275,8 +402,9 @@ sensor:
 
   # Register 91/92 (Epv_total laut Growatt-Protokoll): PV-Energie gesamt.
   # Nicht von jedem Modell befuellt - zum Abgleich mit pv_energy_total.
+  # Eigener Energie-Controller, daher kein gemeinsamer Lesevorgang mit 93-95.
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_epv_total
     name: "PV energy total (register)"
     entity_category: diagnostic
@@ -291,7 +419,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_temperature
     id: inverter_temp_1
     name: "Inverter temperature"
     register_type: read
@@ -305,7 +433,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_temperature
     id: inverter_temp_2
     name: "IPM temperature"
     register_type: read
@@ -319,7 +447,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_temperature
     id: inverter_temp_3
     name: "Boost temperature"
     register_type: read
@@ -519,7 +647,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_1_energy_today
     name: "PV1 today generate energy"
     register_type: read
@@ -533,7 +661,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_1_energy_total
     name: "PV1 total generate energy"
     register_type: read
@@ -589,7 +717,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_2_energy_today
     name: "PV2 today generate energy"
     register_type: read
@@ -603,7 +731,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_2_energy_total
     name: "PV2 total generate energy"
     register_type: read
@@ -659,7 +787,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_3_energy_today
     name: "PV3 today generate energy"
     register_type: read
@@ -673,7 +801,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: inverter_dc_3_energy_total
     name: "PV3 total generate energy"
     register_type: read
@@ -773,7 +901,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: battery_energy_discharged_today
     name: "Battery discharged energy today"
     register_type: read
@@ -787,7 +915,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: battery_energy_discharged_total
     name: "Battery discharged energy total"
     register_type: read
@@ -801,7 +929,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: battery_energy_charged_today
     name: "Battery charged energy today"
     register_type: read
@@ -815,7 +943,7 @@ sensor:
       - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_energy
     id: battery_energy_charged_total
     name: "Battery charged energy total"
     register_type: read
@@ -849,8 +977,33 @@ sensor:
                   condition:
                     lambda: 'return !id(growatt_write_in_progress);'
                   then:
-                    - component.update: growatt_data
-                    - script.execute: poll_emeter_fc32
+                    - lambda: |-
+                        if (!id(growatt_poll_initialized) ||
+                            id(growatt_due_fast)) {
+                          id(growatt_due_fast) = false;
+                          id(growatt_data).update();
+                        }
+                        if (!id(growatt_poll_initialized) ||
+                            id(growatt_due_temperature)) {
+                          id(growatt_due_temperature) = false;
+                          id(growatt_temperature).update();
+                        }
+                        if (!id(growatt_poll_initialized) ||
+                            id(growatt_due_energy)) {
+                          id(growatt_due_energy) = false;
+                          id(growatt_energy).update();
+                        }
+                        if (!id(growatt_poll_initialized) ||
+                            id(growatt_due_settings)) {
+                          id(growatt_due_settings) = false;
+                          id(growatt_settings).update();
+                        }
+                        if (!id(growatt_poll_initialized) ||
+                            id(growatt_due_meter)) {
+                          id(growatt_due_meter) = false;
+                          id(poll_emeter_fc32).execute();
+                        }
+                        id(growatt_poll_initialized) = true;
 
   - platform: modbus_controller
     modbus_controller_id: growatt_data
@@ -1055,7 +1208,7 @@ sensor:
   # Write+Verify-Zyklus duerfen sie die optimistische HA-Anzeige nicht
   # ueberschreiben; erst das finale Verify publiziert den bestaetigten Wert.
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_discharge_rate_setting
     internal: true
     register_type: holding
@@ -1071,7 +1224,7 @@ sensor:
               - lambda: 'id(battery_discharge_rate).publish_state(x);'
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_discharge_soc_offgrid_setting
     internal: true
     register_type: holding
@@ -1087,7 +1240,7 @@ sensor:
               - lambda: 'id(battery_discharge_soc_offgrid).publish_state(x);'
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_charge_rate_setting
     internal: true
     register_type: holding
@@ -1103,7 +1256,7 @@ sensor:
               - lambda: 'id(battery_charge_rate).publish_state(x);'
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_charge_soc_setting
     internal: true
     register_type: holding
@@ -1119,7 +1272,7 @@ sensor:
               - lambda: 'id(battery_charge_soc).publish_state(x);'
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_charge_ac_setting
     internal: true
     register_type: holding
@@ -1135,7 +1288,7 @@ sensor:
               - lambda: 'id(battery_charge_ac).publish_state((((uint16_t)x) & 0x01) != 0);'
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: raw_battery_discharge_soc_ongrid_setting
     internal: true
     register_type: holding
@@ -1151,6 +1304,20 @@ sensor:
               - lambda: 'id(battery_discharge_soc_ongrid).publish_state(x);'
 
 text_sensor:
+  # Makes a missing/unknown readback visible; a switch alone has no unknown value.
+  - platform: template
+    id: inverter_operating_enable_state
+    name: "Inverter operating enable state"
+    entity_category: diagnostic
+    update_interval: ${update_interval}
+    lambda: |-
+      if (!id(growatt_is_online)) return {"Unavailable"};
+      const float value = id(raw_inverter_operating_enable).state;
+      if (isnan(value)) return {"Unknown"};
+      if (value == 1.0f) return {"Enabled"};
+      if (value == 2.0f) return {"Disabled"};
+      return str_sprintf("Unknown (%u)", (unsigned) value);
+
   - platform: template
     name: "Inverter run state"
     id: inverter_state
@@ -1229,6 +1396,28 @@ text_sensor:
     lambda: |-
       if (!id(growatt_is_online) || isnan(id(raw_battery_deratingmode).state)) return {"unavailable"};
       int v = (int) id(raw_battery_deratingmode).state;
+      // MID 25KTL3-XH: Wert 1 ist je nach Protokollstand Standby ODER Fehler.
+      // Nur mit vollstaendigen, widerspruchsfreien Statuswerten als Standby
+      // anzeigen. Dies ist eine Anzeigeaufloesung, keine neue Registerbelegung.
+      if (v == 1) {
+        const float battery_state = id(raw_battery_mode_state).state;
+        const float inverter_state = id(raw_inverter_state).state;
+        const float main_fault = id(inverter_failure_main).state;
+        const float sub_fault = id(inverter_failure_sub).state;
+        const float fault_value = id(battery_fault).state;
+        const float warning_value = id(battery_warning).state;
+        if ((!isnan(battery_state) && (((int) battery_state & 0xFF) == 2)) ||
+            (!isnan(inverter_state) && inverter_state == 3) ||
+            (!isnan(main_fault) && main_fault != 0) ||
+            (!isnan(sub_fault) && sub_fault != 0) ||
+            (!isnan(fault_value) && fault_value != 0))
+          return {"System fault"};
+        if (!isnan(battery_state) && (((int) battery_state & 0xFF) == 0) &&
+            inverter_state == 1 && main_fault == 0 && sub_fault == 0 &&
+            fault_value == 0 && warning_value == 0)
+          return {"Standby"};
+        return {"Standby or fault (code 1)"};
+      }
       static const char *reasons[] = {
         "Normal, unrestricted", "System fault", "System warning",
         "Maximum charging current of battery (charging)", "Battery high temperature (charging)",
@@ -1262,7 +1451,7 @@ number:
     max_value: 100
     step: 1
     mode: box
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     set_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1271,9 +1460,14 @@ number:
               id(battery_discharge_rate).publish_state(id(raw_battery_discharge_rate_setting).state);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_discharge_rate).publish_state(x);
-          id(growatt_write_verify).execute(3036, (int) x, 0, 0, 1);
+          id(growatt_write_verify).execute(3036, (int) x, 0, 0, 1, 0, 0);
 
   - platform: template
     id: battery_discharge_soc_offgrid
@@ -1283,7 +1477,7 @@ number:
     max_value: 100
     step: 1
     mode: box
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     set_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1292,9 +1486,14 @@ number:
               id(battery_discharge_soc_offgrid).publish_state(id(raw_battery_discharge_soc_offgrid_setting).state);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_discharge_soc_offgrid).publish_state(x);
-          id(growatt_write_verify).execute(3037, (int) x, 0, 0, 1);
+          id(growatt_write_verify).execute(3037, (int) x, 0, 0, 1, 0, 0);
 
   - platform: template
     id: battery_discharge_soc_ongrid
@@ -1304,7 +1503,7 @@ number:
     max_value: 100
     step: 1
     mode: box
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     set_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1313,9 +1512,14 @@ number:
               id(battery_discharge_soc_ongrid).publish_state(id(raw_battery_discharge_soc_ongrid_setting).state);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_discharge_soc_ongrid).publish_state(x);
-          id(growatt_write_verify).execute(3067, (int) x, 0, 0, 1);
+          id(growatt_write_verify).execute(3067, (int) x, 0, 0, 1, 0, 0);
 
   - platform: template
     id: battery_charge_rate
@@ -1325,7 +1529,7 @@ number:
     max_value: 100
     step: 1
     mode: box
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     set_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1334,9 +1538,14 @@ number:
               id(battery_charge_rate).publish_state(id(raw_battery_charge_rate_setting).state);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_charge_rate).publish_state(x);
-          id(growatt_write_verify).execute(3047, (int) x, 0, 0, 1);
+          id(growatt_write_verify).execute(3047, (int) x, 0, 0, 1, 0, 0);
 
   - platform: template
     id: battery_charge_soc
@@ -1346,7 +1555,7 @@ number:
     max_value: 100
     step: 1
     mode: box
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     set_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1355,15 +1564,55 @@ number:
               id(battery_charge_soc).publish_state(id(raw_battery_charge_soc_setting).state);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_charge_soc).publish_state(x);
-          id(growatt_write_verify).execute(3048, (int) x, 0, 0, 1);
+          id(growatt_write_verify).execute(3048, (int) x, 0, 0, 1, 0, 0);
 
 switch:
+  # Explicit manual command only. Never restore/send a command at startup.
+  # State is published only after readback, not when the button is pressed.
+  - platform: template
+    id: inverter_operating_enable
+    name: "Inverter operating enable"
+    icon: mdi:power
+    optimistic: false
+    restore_mode: DISABLED
+    turn_on_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Betriebsfreigabe verworfen: Wechselrichter offline");
+            return;
+          }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Betriebsfreigabe verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(0, 1, 0, 0, 1, 0, 0);
+    turn_off_action:
+      - lambda: |-
+          if (!id(growatt_is_online)) {
+            ESP_LOGW("growatt_write", "Betriebsfreigabe verworfen: Wechselrichter offline");
+            return;
+          }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Betriebsfreigabe verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
+          id(growatt_write_in_progress) = true;
+          id(growatt_write_verify).execute(0, 2, 0, 0, 1, 0, 0);
+
   - platform: template
     id: battery_charge_ac
     name: "Enable AC charging"
-    optimistic: true
+    optimistic: false  # Publish explicitly only after queue admission.
     turn_on_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1372,9 +1621,14 @@ switch:
               id(battery_charge_ac).publish_state((((uint16_t) id(raw_battery_charge_ac_setting).state) & 0x01) != 0);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_charge_ac).publish_state(true);
-          id(growatt_write_verify).execute(3049, 1, 0, 0, 1);
+          id(growatt_write_verify).execute(3049, 1, 0, 0, 1, 0, 0);
     turn_off_action:
       - lambda: |-
           if (!id(growatt_is_online)) {
@@ -1383,9 +1637,14 @@ switch:
               id(battery_charge_ac).publish_state((((uint16_t) id(raw_battery_charge_ac_setting).state) & 0x01) != 0);
             return;
           }
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
           id(battery_charge_ac).publish_state(false);
-          id(growatt_write_verify).execute(3049, 0, 0, 0, 1);
+          id(growatt_write_verify).execute(3049, 0, 0, 0, 1, 0, 0);
 
 
 # ============================================================================
@@ -1393,10 +1652,13 @@ switch:
 # Byte-Layout/Offsets siehe Kommentar oben bei den emeter_*-Sensoren.
 # ============================================================================
 script:
-  # Robuster Schreibpfad fuer alle FC6-Einstellungen:
+  # Ein gemeinsamer Schreibpfad fuer alle FC6-Einstellungen:
   # Write -> ACK -> Readback -> Soll/Ist-Vergleich, bis zu 3 Versuche.
   # Ein Register (register_count=1) fuer Batterieparameter/AC-Charging,
   # zwei aufeinanderfolgende Register fuer ein komplettes Zeitfenster.
+  # field_mask/field_bits werden erst nach einem frischen FC3 angewendet.
+  # Terminale Callbacks ersetzen den bisherigen separaten 2500-ms-Wartetimer:
+  # kein Folgeschritt darf einen noch im Hub wartenden Auftrag ueberholen.
   - id: growatt_write_verify
     mode: queued
     max_runs: 10
@@ -1406,6 +1668,8 @@ script:
       address_2: int
       value_2: int
       register_count: int
+      field_mask: uint32_t
+      field_bits: uint32_t
     then:
       - if:
           condition:
@@ -1414,65 +1678,122 @@ script:
             - lambda: |-
                 id(growatt_write_in_progress) = true;
                 id(growatt_write_verified) = false;
-                ESP_LOGI("growatt_write",
-                         "Starte Write+Verify: Reg %d = %d%s",
-                         address_1, value_1, register_count == 2 ? " (+ Folgeregister)" : "");
-            # Bereits gestartete Leseabfrage darf auslaufen; waehrend des Writes
-            # werden durch den Heartbeat keine neuen Datenpolls angestossen.
-            - delay: 250ms
+                id(growatt_readback_received) = false;
+                id(growatt_target_1) = (uint16_t) value_1;
+                id(growatt_target_2) = (uint16_t) value_2;
+                id(growatt_target_ready) = (register_count == 1);
+                ESP_LOGI("growatt_write", "Starte Write+Verify: Reg %d, Anzahl %d",
+                         address_1, register_count);
+            # Drain the real hub queue, including retries; no guessed delay.
+            # Heartbeat scheduling is suspended for the entire queued worker.
+            - wait_until:
+                condition:
+                  lambda: 'return (id(modbus_bus).tx_buffer_empty() && !id(modbus_bus).tx_blocked());'
+            # Read-modify-write at execution time preserves earlier queued edits.
+            - if:
+                condition:
+                  lambda: 'return register_count == 2;'
+                then:
+                  - lambda: |-
+                      id(growatt_request_done) = false;
+                      id(growatt_readback_received) = false;
+                  - modbus_client.read_holding_registers:
+                      modbus_id: modbus_bus
+                      address: ${modbus_device_address}
+                      start_address: !lambda 'return (uint16_t) address_1;'
+                      count: 2
+                      on_response:
+                        - lambda: |-
+                            id(growatt_readback_1) = values[0];
+                            id(growatt_readback_2) = values[1];
+                            id(growatt_readback_received) = true;
+                            id(growatt_request_done) = true;
+                      on_error:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_no_response:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_not_sent:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_custom_response:
+                        - lambda: 'id(growatt_request_done) = true;'
+                  - wait_until:
+                      condition:
+                        lambda: 'return id(growatt_request_done);'
+                  - lambda: |-
+                      if (id(growatt_readback_received)) {
+                        uint32_t current = (uint32_t(id(growatt_readback_1)) << 16) |
+                                           id(growatt_readback_2);
+                        current = (current & ~field_mask) | (field_bits & field_mask);
+                        id(growatt_target_1) = uint16_t(current >> 16);
+                        id(growatt_target_2) = uint16_t(current);
+                        id(growatt_target_ready) = true;
+                      } else {
+                        ESP_LOGE("growatt_write", "Zeitfenster nicht gelesen; Aenderung sicher verworfen");
+                      }
             - repeat:
                 count: 3
                 then:
                   - if:
                       condition:
-                        lambda: 'return !id(growatt_write_verified) && id(growatt_is_online);'
+                        lambda: 'return id(growatt_target_ready) && !id(growatt_write_verified) && id(growatt_is_online);'
                       then:
                         - lambda: |-
                             id(growatt_write_ack_1) = false;
                             id(growatt_write_ack_2) = (register_count == 1);
                             id(growatt_readback_received) = false;
+                        - lambda: 'id(growatt_request_done) = false;'
                         - modbus_client.write_single_register:
                             modbus_id: modbus_bus
                             address: ${modbus_device_address}
                             start_address: !lambda 'return (uint16_t) address_1;'
-                            value: !lambda 'return (uint16_t) value_1;'
+                            value: !lambda 'return (uint16_t) id(growatt_target_1);'
                             on_response:
                               then:
-                                - lambda: 'id(growatt_write_ack_1) = true;'
+                                - lambda: 'id(growatt_write_ack_1) = true; id(growatt_request_done) = true;'
+                            on_error:
+                              - lambda: 'id(growatt_request_done) = true;'
+                            on_no_response:
+                              - lambda: 'id(growatt_request_done) = true;'
                             on_not_sent:
-                              then:
-                                - lambda: |-
-                                    ESP_LOGW("growatt_write", "FC6 konnte nicht in die Sendewarteschlange");
+                              - lambda: 'id(growatt_request_done) = true;'
+                            on_custom_response:
+                              - lambda: 'id(growatt_request_done) = true;'
+
                         - wait_until:
                             condition:
-                              lambda: 'return id(growatt_write_ack_1);'
-                            timeout: 2500ms
+                              lambda: 'return id(growatt_request_done);'
                         - if:
                             condition:
                               lambda: 'return register_count == 2 && id(growatt_write_ack_1);'
                             then:
+                              - lambda: 'id(growatt_request_done) = false;'
                               - modbus_client.write_single_register:
                                   modbus_id: modbus_bus
                                   address: ${modbus_device_address}
                                   start_address: !lambda 'return (uint16_t) address_2;'
-                                  value: !lambda 'return (uint16_t) value_2;'
+                                  value: !lambda 'return (uint16_t) id(growatt_target_2);'
                                   on_response:
                                     then:
-                                      - lambda: 'id(growatt_write_ack_2) = true;'
+                                      - lambda: 'id(growatt_write_ack_2) = true; id(growatt_request_done) = true;'
+                                  on_error:
+                                    - lambda: 'id(growatt_request_done) = true;'
+                                  on_no_response:
+                                    - lambda: 'id(growatt_request_done) = true;'
                                   on_not_sent:
-                                    then:
-                                      - lambda: |-
-                                          ESP_LOGW("growatt_write", "Zweiter FC6 konnte nicht in die Sendewarteschlange");
+                                    - lambda: 'id(growatt_request_done) = true;'
+                                  on_custom_response:
+                                    - lambda: 'id(growatt_request_done) = true;'
+
                               - wait_until:
                                   condition:
-                                    lambda: 'return id(growatt_write_ack_2);'
-                                  timeout: 2500ms
+                                    lambda: 'return id(growatt_request_done);'
                         - if:
                             condition:
                               lambda: 'return id(growatt_write_ack_1) && id(growatt_write_ack_2);'
                             then:
                               - delay: 750ms
                               - lambda: 'id(growatt_readback_received) = false;'
+                              - lambda: 'id(growatt_request_done) = false;'
                               - modbus_client.read_holding_registers:
                                   modbus_id: modbus_bus
                                   address: ${modbus_device_address}
@@ -1484,19 +1805,24 @@ script:
                                           if (!values.empty()) id(growatt_readback_1) = values[0];
                                           if (values.size() > 1) id(growatt_readback_2) = values[1];
                                           id(growatt_readback_received) = true;
+                                          id(growatt_request_done) = true;
+                                  on_error:
+                                    - lambda: 'id(growatt_request_done) = true;'
+                                  on_no_response:
+                                    - lambda: 'id(growatt_request_done) = true;'
                                   on_not_sent:
-                                    then:
-                                      - lambda: |-
-                                          ESP_LOGW("growatt_write", "Readback konnte nicht gesendet werden");
+                                    - lambda: 'id(growatt_request_done) = true;'
+                                  on_custom_response:
+                                    - lambda: 'id(growatt_request_done) = true;'
+
                               - wait_until:
                                   condition:
-                                    lambda: 'return id(growatt_readback_received);'
-                                  timeout: 2500ms
+                                    lambda: 'return id(growatt_request_done);'
                               - lambda: |-
                                   if (id(growatt_readback_received)) {
-                                    const bool first_ok = id(growatt_readback_1) == (uint16_t) value_1;
+                                    const bool first_ok = id(growatt_readback_1) == (uint16_t) id(growatt_target_1);
                                     const bool second_ok = register_count == 1 ||
-                                        id(growatt_readback_2) == (uint16_t) value_2;
+                                        id(growatt_readback_2) == (uint16_t) id(growatt_target_2);
                                     if (first_ok && second_ok) {
                                       id(growatt_write_verified) = true;
                                       ESP_LOGI("growatt_write",
@@ -1506,7 +1832,7 @@ script:
                                     } else {
                                       ESP_LOGW("growatt_write",
                                                "Readback abweichend: Reg %d Soll=%u Ist=%u%s",
-                                               address_1, (uint16_t)value_1, id(growatt_readback_1),
+                                               address_1, (uint16_t)id(growatt_target_1), id(growatt_readback_1),
                                                register_count == 2 ? "; auch zweites Register wird geprueft" : "");
                                     }
                                   }
@@ -1520,12 +1846,13 @@ script:
             # Phase festhalten und erst danach einen finalen Readback durchfuehren.
             - if:
                 condition:
-                  lambda: 'return !id(growatt_write_verified) && id(growatt_is_online);'
+                  lambda: 'return id(growatt_target_ready) && !id(growatt_write_verified) && id(growatt_is_online);'
                 then:
                   - delay: 3s
                   - lambda: |-
                       id(growatt_readback_received) = false;
                       ESP_LOGI("growatt_write", "Settling-Zeit abgelaufen, finaler Readback fuer Reg %d", address_1);
+                  - lambda: 'id(growatt_request_done) = false;'
                   - modbus_client.read_holding_registers:
                       modbus_id: modbus_bus
                       address: ${modbus_device_address}
@@ -1537,15 +1864,24 @@ script:
                               if (!values.empty()) id(growatt_readback_1) = values[0];
                               if (values.size() > 1) id(growatt_readback_2) = values[1];
                               id(growatt_readback_received) = true;
+                              id(growatt_request_done) = true;
+                      on_error:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_no_response:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_not_sent:
+                        - lambda: 'id(growatt_request_done) = true;'
+                      on_custom_response:
+                        - lambda: 'id(growatt_request_done) = true;'
+
                   - wait_until:
                       condition:
-                        lambda: 'return id(growatt_readback_received);'
-                      timeout: 2500ms
+                        lambda: 'return id(growatt_request_done);'
                   - lambda: |-
                       if (id(growatt_readback_received)) {
-                        const bool first_ok = id(growatt_readback_1) == (uint16_t) value_1;
+                        const bool first_ok = id(growatt_readback_1) == (uint16_t) id(growatt_target_1);
                         const bool second_ok = register_count == 1 ||
-                            id(growatt_readback_2) == (uint16_t) value_2;
+                            id(growatt_readback_2) == (uint16_t) id(growatt_target_2);
                         if (first_ok && second_ok) {
                           id(growatt_write_verified) = true;
                           ESP_LOGI("growatt_write", "Write durch finalen Readback verifiziert");
@@ -1557,21 +1893,25 @@ script:
                   // Sollwert beibehalten. So kann kein spaeter/staler Pollwert die
                   // HA-Anzeige waehrend der Transaktion zurueckspringen lassen.
                   switch (address_1) {
-                    case 3036: id(battery_discharge_rate).publish_state((float)value_1); break;
-                    case 3037: id(battery_discharge_soc_offgrid).publish_state((float)value_1); break;
-                    case 3067: id(battery_discharge_soc_ongrid).publish_state((float)value_1); break;
-                    case 3047: id(battery_charge_rate).publish_state((float)value_1); break;
-                    case 3048: id(battery_charge_soc).publish_state((float)value_1); break;
-                    case 3049: id(battery_charge_ac).publish_state(((uint16_t)value_1 & 0x01) != 0); break;
-                    case 3038: id(period1_raw_hi).publish_state((float)value_1); id(period1_raw_lo).publish_state((float)value_2); break;
-                    case 3040: id(period2_raw_hi).publish_state((float)value_1); id(period2_raw_lo).publish_state((float)value_2); break;
-                    case 3042: id(period3_raw_hi).publish_state((float)value_1); id(period3_raw_lo).publish_state((float)value_2); break;
-                    case 3044: id(period4_raw_hi).publish_state((float)value_1); id(period4_raw_lo).publish_state((float)value_2); break;
-                    case 3050: id(period5_raw_hi).publish_state((float)value_1); id(period5_raw_lo).publish_state((float)value_2); break;
-                    case 3052: id(period6_raw_hi).publish_state((float)value_1); id(period6_raw_lo).publish_state((float)value_2); break;
-                    case 3054: id(period7_raw_hi).publish_state((float)value_1); id(period7_raw_lo).publish_state((float)value_2); break;
-                    case 3056: id(period8_raw_hi).publish_state((float)value_1); id(period8_raw_lo).publish_state((float)value_2); break;
-                    case 3058: id(period9_raw_hi).publish_state((float)value_1); id(period9_raw_lo).publish_state((float)value_2); break;
+                    case 0:
+                      id(raw_inverter_operating_enable).publish_state(id(growatt_target_1));
+                      id(inverter_operating_enable).publish_state(id(growatt_target_1) == 1);
+                      break;
+                    case 3036: id(battery_discharge_rate).publish_state((float)id(growatt_target_1)); break;
+                    case 3037: id(battery_discharge_soc_offgrid).publish_state((float)id(growatt_target_1)); break;
+                    case 3067: id(battery_discharge_soc_ongrid).publish_state((float)id(growatt_target_1)); break;
+                    case 3047: id(battery_charge_rate).publish_state((float)id(growatt_target_1)); break;
+                    case 3048: id(battery_charge_soc).publish_state((float)id(growatt_target_1)); break;
+                    case 3049: id(battery_charge_ac).publish_state(((uint16_t)id(growatt_target_1) & 0x01) != 0); break;
+                    case 3038: id(period1_raw_hi).publish_state((float)id(growatt_target_1)); id(period1_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3040: id(period2_raw_hi).publish_state((float)id(growatt_target_1)); id(period2_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3042: id(period3_raw_hi).publish_state((float)id(growatt_target_1)); id(period3_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3044: id(period4_raw_hi).publish_state((float)id(growatt_target_1)); id(period4_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3050: id(period5_raw_hi).publish_state((float)id(growatt_target_1)); id(period5_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3052: id(period6_raw_hi).publish_state((float)id(growatt_target_1)); id(period6_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3054: id(period7_raw_hi).publish_state((float)id(growatt_target_1)); id(period7_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3056: id(period8_raw_hi).publish_state((float)id(growatt_target_1)); id(period8_raw_lo).publish_state((float)id(growatt_target_2)); break;
+                    case 3058: id(period9_raw_hi).publish_state((float)id(growatt_target_1)); id(period9_raw_lo).publish_state((float)id(growatt_target_2)); break;
                     default: break;
                   }
                   ESP_LOGI("growatt_write", "Write stabil bestaetigt (Startreg %d)", address_1);
@@ -1582,8 +1922,15 @@ script:
                   // Erst jetzt gilt der Schreibvorgang als wirklich fehlgeschlagen.
                   // Nur in diesem Fall auf den tatsaechlich gelesenen Istwert
                   // zurueckspringen.
+                  if (address_1 == 0 && !id(growatt_readback_received))
+                    id(raw_inverter_operating_enable).publish_state(NAN);
                   if (id(growatt_readback_received)) {
                     switch (address_1) {
+                      case 0:
+                        id(raw_inverter_operating_enable).publish_state(id(growatt_readback_1));
+                        if (id(growatt_readback_1) == 1 || id(growatt_readback_1) == 2)
+                          id(inverter_operating_enable).publish_state(id(growatt_readback_1) == 1);
+                        break;
                       case 3036: id(battery_discharge_rate).publish_state(id(growatt_readback_1)); break;
                       case 3037: id(battery_discharge_soc_offgrid).publish_state(id(growatt_readback_1)); break;
                       case 3067: id(battery_discharge_soc_ongrid).publish_state(id(growatt_readback_1)); break;
@@ -1603,15 +1950,13 @@ script:
                     }
                   }
                 }
-            # Den Polling-Schutz nach erfolgreicher Verifikation noch kurz halten,
-            # damit ein bereits vorbereiteter/staler Lesezyklus die UI nicht
-            # unmittelbar wieder mit dem alten Registerwert ueberschreibt.
+            # Bestehende Nachlaufzeit fuer die Uebernahme im Wechselrichter
+            # beibehalten; Polling bleibt bis zum Ende der gesamten Queue gesperrt.
             - if:
                 condition:
                   lambda: 'return id(growatt_write_verified);'
                 then:
                   - delay: 1500ms
-            - lambda: 'id(growatt_write_in_progress) = false;'
             # Kein sofortiger Full-Poll: Der naechste Heartbeat startet den
             # normalen Datenpoll ohnehin. Das vermeidet einen Stale-Read direkt
             # nach dem Write.
@@ -1619,8 +1964,12 @@ script:
             - lambda: |-
                 ESP_LOGW("growatt_write", "Schreibvorgang verworfen: Wechselrichter offline");
 
+      - lambda: |-
+          id(growatt_write_jobs)--;
+          id(growatt_write_in_progress) = id(growatt_write_jobs) > 0;
+
   - id: poll_emeter_fc32
-    mode: restart
+    mode: single
     then:
       - if:
           condition:

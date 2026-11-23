@@ -46,6 +46,7 @@ This document describes the addresses implemented by the ESPHome package. It is 
 
 | Setting | Address |
 |---|---:|
+| Inverter operating enable (1 = on, 2 = off) | 0 |
 | Battery discharge rate | 3036 |
 | Battery SOC off-grid discharge limit | 3037 |
 | Battery charge rate | 3047 |
