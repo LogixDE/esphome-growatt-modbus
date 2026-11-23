@@ -39,7 +39,7 @@ Dieses Projekt wurde auf einem **Waveshare ESP32-S3-Relay-6CH** entwickelt und g
 
 Am einfachsten kopierst du [`examples/growatt-example.yaml`](examples/growatt-example.yaml) in dein ESPHome-Verzeichnis, legst anhand von [`examples/secrets.example.yaml`](examples/secrets.example.yaml) eine lokale `secrets.yaml` an und passt Pins, Geräteadresse und Gerätenamen an.
 
-Das Beispiel lädt die Dateien direkt von `https://github.com/LogixDE/esphome-growatt-modbus` und ist auf `v1.0.1` festgesetzt. Dadurch verändert ein späteres Update von `main` nicht ungefragt eine funktionierende Installation.
+Das Beispiel lädt die Dateien direkt von `https://github.com/LogixDE/esphome-growatt-modbus` und ist auf `v1.1.0` festgesetzt. Dadurch verändert ein späteres Update von `main` nicht ungefragt eine funktionierende Installation.
 
 ## Standard-Pins
 
