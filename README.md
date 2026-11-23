@@ -58,7 +58,7 @@ Connect the RS485 A/B pair to the inverter according to the inverter/transceiver
 3. Adjust UART pins, baud rate, Modbus address and device name.
 4. Compile and flash with ESPHome.
 
-The example loads the package directly from this repository and pins it to `v1.0.1`. Pinning a release is recommended so future changes on `main` do not unexpectedly change a working installation. ESPHome remote packages support Git repositories and per-file variables; remote packages intentionally contain no `!secret` lookups.
+The example loads the package directly from this repository and pins it to `v1.1.0`. Pinning a release is recommended so future changes on `main` do not unexpectedly change a working installation. ESPHome remote packages support Git repositories and per-file variables; remote packages intentionally contain no `!secret` lookups.
 
 ### Remote package structure
 
@@ -68,7 +68,7 @@ The example uses the repository form because the time-window template is instant
 packages:
   growatt:
     url: https://github.com/LogixDE/esphome-growatt-modbus
-    ref: v1.0.1
+    ref: v1.1.0
     files:
       - path: packages/growatt.yaml
       - path: packages/growatt_zeitfenster.yaml
