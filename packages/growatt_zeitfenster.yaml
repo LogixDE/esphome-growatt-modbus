@@ -11,11 +11,14 @@
 # WICHTIG: Die beiden 16-Bit-Register werden getrennt gelesen. Ein einzelner
 # U_DWORD-Sensor waere in ESPHome intern ein float und koennte bei diesem
 # gepackten 32-Bit-Wert Bits verlieren. Zwei U_WORD-Sensoren sind exakt.
+# Aenderungen werden als Bitmaske eingereiht. Erst der gemeinsame Schreibpfad
+# liest den aktuellen Wert und wendet die Maske an: schnelle Bedienfolgen
+# ueberschreiben dadurch keine zuvor eingereihten Aenderungen.
 # ============================================================================
 
 sensor:
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: period${period_num}_raw_hi
     internal: true
     register_type: holding
@@ -23,7 +26,7 @@ sensor:
     value_type: U_WORD
 
   - platform: modbus_controller
-    modbus_controller_id: growatt_data
+    modbus_controller_id: growatt_settings
     id: period${period_num}_raw_lo
     internal: true
     register_type: holding
@@ -52,14 +55,14 @@ switch:
             ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
             return;
           }
-          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
-                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
-          v |= (1u << 31);
-          uint16_t hi = (uint16_t)(v >> 16);
-          uint16_t lo = (uint16_t)(v & 0xFFFF);
-          id(period${period_num}_enable).publish_state(true);
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
-          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+          id(period${period_num}_enable).publish_state(true);
+          id(growatt_write_verify).execute(${reg_addr}, 0, ${reg_addr_lo}, 0, 2, 0x80000000u, 0x80000000u);
     turn_off_action:
       - lambda: |-
           if (!id(growatt_is_online) ||
@@ -68,14 +71,14 @@ switch:
             ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
             return;
           }
-          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
-                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
-          v &= ~(1u << 31);
-          uint16_t hi = (uint16_t)(v >> 16);
-          uint16_t lo = (uint16_t)(v & 0xFFFF);
-          id(period${period_num}_enable).publish_state(false);
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
-          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+          id(period${period_num}_enable).publish_state(false);
+          id(growatt_write_verify).execute(${reg_addr}, 0, ${reg_addr_lo}, 0, 2, 0x80000000u, 0u);
 
 select:
   - platform: template
@@ -112,19 +115,18 @@ select:
             ESP_LOGW("zeitfenster", "Schreibvorgang verworfen: Growatt offline oder Zeitfenster noch nicht gelesen");
             return;
           }
-          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
-                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
           uint32_t p = 0;
           if (x == "load") p = 0;
           else if (x == "battery") p = 1;
           else if (x == "grid") p = 2;
-          v &= ~(0x03u << 29);
-          v |= (p << 29);
-          uint16_t hi = (uint16_t)(v >> 16);
-          uint16_t lo = (uint16_t)(v & 0xFFFF);
-          id(period${period_num}_priority).publish_state(x);
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
-          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+          id(period${period_num}_priority).publish_state(x);
+          id(growatt_write_verify).execute(${reg_addr}, 0, ${reg_addr_lo}, 0, 2, 0x60000000u, (p << 29));
 
 text:
   - platform: template
@@ -158,17 +160,14 @@ text:
             ESP_LOGE("zeitfenster", "Ungueltiges Zeitformat, erwarte HH:MM (00:00..23:59): %s", x.c_str());
             return;
           }
-          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
-                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
-          v &= ~(0x1Fu << 24);
-          v &= ~(0xFFu << 16);
-          v |= ((hour & 0x1F) << 24);
-          v |= ((minute & 0xFF) << 16);
-          uint16_t hi = (uint16_t)(v >> 16);
-          uint16_t lo = (uint16_t)(v & 0xFFFF);
-          id(period${period_num}_start).publish_state(x);
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
-          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+          id(period${period_num}_start).publish_state(x);
+          id(growatt_write_verify).execute(${reg_addr}, 0, ${reg_addr_lo}, 0, 2, 0x1FFF0000u, ((hour << 24) | (minute << 16)));
 
   - platform: template
     name: "Period ${period_num} end"
@@ -201,14 +200,11 @@ text:
             ESP_LOGE("zeitfenster", "Ungueltiges Zeitformat, erwarte HH:MM (00:00..23:59): %s", x.c_str());
             return;
           }
-          uint32_t v = ((uint32_t)(uint16_t)id(period${period_num}_raw_hi).state << 16) |
-                       (uint32_t)(uint16_t)id(period${period_num}_raw_lo).state;
-          v &= ~(0x1Fu << 8);
-          v &= ~0xFFu;
-          v |= ((hour & 0x1F) << 8);
-          v |= (minute & 0xFF);
-          uint16_t hi = (uint16_t)(v >> 16);
-          uint16_t lo = (uint16_t)(v & 0xFFFF);
-          id(period${period_num}_end).publish_state(x);
+          if (id(growatt_write_jobs) >= 10) {
+            ESP_LOGW("growatt_write", "Schreibwarteschlange voll; Aenderung verworfen");
+            return;
+          }
+          id(growatt_write_jobs)++;
           id(growatt_write_in_progress) = true;
-          id(growatt_write_verify).execute(${reg_addr}, hi, ${reg_addr_lo}, lo, 2);
+          id(period${period_num}_end).publish_state(x);
+          id(growatt_write_verify).execute(${reg_addr}, 0, ${reg_addr_lo}, 0, 2, 0x00001FFFu, ((hour << 8) | minute));

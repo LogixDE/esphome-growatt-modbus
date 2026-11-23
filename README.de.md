@@ -56,7 +56,7 @@ Schreibbare Einstellungen werden nicht nur gesendet. Der Wert wird anschließend
 
 ## Offline-Verhalten
 
-Register 0 dient als Heartbeat. Antwortet der Wechselrichter nicht, werden die umfangreichen Folgeabfragen nicht gestartet. `Growatt Modbus Online` geht auf aus und abhängige Werte werden ungültig, damit Home Assistant keine alten Werte als aktuelle Messung darstellt.
+Register 0 dient als Heartbeat. Antwortet der Wechselrichter nicht, werden die umfangreichen Folgeabfragen nicht gestartet. Nach einem erfolgreichen Heartbeat werden nur die fälligen Registergruppen gelesen, jede mit eigenem Intervall (`fast_poll_ms`, `temperature_poll_ms`, `energy_poll_ms`, `settings_poll_ms`, `meter_poll_ms`). Während eines Schreibvorgangs wird nicht gepollt. `Growatt Modbus Online` geht auf aus und abhängige Werte werden ungültig, damit Home Assistant keine alten Werte als aktuelle Messung darstellt.
 
 ## Smartmeter / FC32
 
